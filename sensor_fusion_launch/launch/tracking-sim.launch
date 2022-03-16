@@ -1,0 +1,148 @@
+<launch>
+  <!-- <param name="/use_sim_time" value="true"/> -->
+	<arg name="use_sb_mpc" default="True" />
+	<arg name="use_vo" default="False" />
+
+
+
+
+	<!-- node name="UserLogNode" pkg="log_revolt" type="LogToFile.py" respawn="true" / -->
+	<!-- node name="LogEverythingNode" pkg="log_revolt" type="logEverything.py" respawn="true" / -->
+ 
+
+  <!-- Input arguments -->
+    <arg name = "main"          default = "vessel" /> <!-- launch the physical 'vessel' or 'simulator' -->
+    <arg name = "azure_iot"     default = "false"  />
+    <arg name = "tracking"      default = "false"  />
+    <arg name = "tracking_rviz" default = "false"  />
+
+<!-- Parameters -->
+    <rosparam command="load" file="$(find revolt_launch)/config/geo.yaml"/>
+    <rosparam command="load" file="$(find revolt_launch)/config/hardware.yaml"/>
+    <rosparam command="load" file="$(find revolt_launch)/config/tracking.yaml"/>
+    <rosparam command="load" file="$(find revolt_launch)/config/topics.yaml"/>
+     <!-- Load ned-origins-->
+  <rosparam command="load" file="$(find revolt_launch)/config/ned_frames.yaml"/>
+
+  <!-- Supervisory Controller node -->
+  <node name="CME" pkg="cme" type="cme_node" respawn="true" output="screen"/>
+
+    <group ns="controllers">
+        <node name="DPcontrollerNode"        pkg="dp_controller"      type="DP_PID.py"               respawn="true" output="screen"/>
+        <node name="refFilterNode"           pkg="dp_controller"      type="Reference_filter.py"     respawn="true" output="screen"/>
+        <node name="RLControllerNode"        pkg="rl_controller"      type="rl_controller.py"        respawn="true" output="screen"/>
+        <node name="SpeedControllerNode"     pkg="speed_controller"   type="SpeedController"         respawn="true" output="screen"/>
+        <node name="HeadingControllerNode"   pkg="heading_controller" type="HeadingController"       respawn="true" output="screen"/>
+    </group>
+
+  <!-- Thrust allocation node -->
+    <group ns="allocation">
+        <node name="thrusterAllocationNode"  pkg="dp_controller"      type="Thruster_allocation.py"  respawn="true"                />
+    </group>
+
+  <!-- Azure Node Connection--> TODO
+  <node name="AzureNode" pkg="azure_connection" type="azure_connection.py" />
+
+  <!-- AIS decoder node-->
+ <!--  <node name="AISdecoderNode" pkg="ais_decoder" type="ais_decoder.py" />-->
+
+<!-- Navigation -->
+    <group ns="navigation">
+        <!-- <node name="AISdecoderNode" pkg="ais_decoder" type="ais_decoder.py"/> -->
+        <node name="ObserverNode"   pkg="observer"    type="observer.py" respawn="true" output="screen">
+            <!-- Brattørkaia -->
+            <param name="lat0" value="63.4405479431" />
+            <param name="lon0" value="10.4229335785" />
+            <param name="alt0" value="-2.423" />
+        </node>
+  
+    <!-- Modbus nodes -->
+    <group ns="modbus">
+        <node name="modbusServer"    pkg="modbus" type="modbus_server.py"     respawn="false" output="screen"/>
+        <node name="modbusServerGPS" pkg="modbus" type="modbus_server_gps.py" respawn="false" output="screen"/>
+        <node name="modbusServerVRU" pkg="modbus" type="modbus_server_vru.py" respawn="false" output="screen"/> 
+    </group>
+
+        <group ns="colav">
+        <node name="CollisionAvoidanceNode" pkg="collision_avoidance" type="CollisionAvoidance" respawn="true" output="screen"/>
+        <node name="TrajectoryGeneratorNode" pkg="rl_controller"      type="trajectory_generator.py" respawn="true" output="screen"/>
+    </group>
+
+    
+    TDOO
+	<node name="SpeedControllerNode" pkg="speed_controller" type="SpeedController" respawn="true" output="screen"/>
+	<node name="HeadingControllerNode" pkg="heading_controller" type="HeadingController" respawn="true" output="screen"/>
+
+    <param name="update_period" type="double" value="3.0"/>
+  </node>
+  
+     <group ns="guidance">
+        <node name="ASVIntersectNode"       pkg="asv_intersect"       type="intersect.py"       respawn="true" output="screen"/>
+        <node name="GuidanceLawNode"        pkg="guidance_law"        type="GuidanceLaw"        respawn="true" output="screen"/>
+    </group>
+
+  <!--Tracking Node -->
+  <!-- <node name="tracker" pkg="autosea_tracking" type="colav_test.py" output="screen" respawn="true"/> -->
+    <!-- UDP ais receiver -->
+    <group ns="network">
+    <node name="TCPDatatransceiver" pkg="tcp_datatransceiver" type="TCPDatatransceiver" respawn="true" respawn_delay="2" output="screen"/>
+        <node name="UDPais"             pkg="udp_receiver"        type="UDP_receiver"       respawn="true" respawn_delay="2" output="screen"/>
+    </group>
+
+  <!-- AIS tracking -->
+  <include file="$(find autosea_tracking)/launch/ais_tracker.launch"/>
+
+  <node name = "plottarn" pkg="autosea_vis" type = "plot_pose.py" ns=  "visualizing" output="screen" respawn="true"/>
+
+     <!--LiDAR clustering and frame transformer -->
+	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
+    <include file="$(find revolt_launch)/launch/transforms.launch"/>
+
+    <!-- Rectification and projection node
+    <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
+	 	<param name="~old_rosbag" value="false"/>
+	</node> -->
+    <!--node pkg="object_detection" name="test" type="test.py" output="screen"></node-->
+
+    <!-- Tracking node using autosea-ROS package -->
+	<node name="tracker" pkg="autosea_tracking" type="lidar_camera_tracker" ns="tracking" output="screen" respawn="true">
+        <param name="target_process_noise_covariance" value="0.1" />
+        <param name="gate_probability" value="0.99" />
+        <param name="maximum_velocity" value="8" />
+        <param name="detection_probability" value="0.9" />
+        <param name="M_init" value="25" />
+        <param name="N_init" value="30" />
+        <param name="N_terminate" value="5" />
+        <param name="ipda_survival_probability" value="1.0" />
+        <param name="ipda_init_prob" value="0.4" />
+        <param name="ipda_confirmation_threshold" value="0.9" />
+        <param name="ipda_termination_threshold" value="0.1" />
+        <param name="N_smooth" value="1" />
+        <param name="scan_topic" value="/lidar_centroids" />
+        <param name="camera_measurement_topic" value="/camera_measurement"/>
+        <param name="estimate_topic" value ="estimates" />
+        <param name="use_ipda" value="false"/>
+        <rosparam param="measurement_covariance_lidar">
+            type : cartesian
+            cartesian : 0.3906
+            range : 100.0
+            bearing : 0.001611
+        </rosparam>
+         <rosparam param="measurement_covariance_camera">
+            type : cartesian
+            cartesian : 0.5
+        </rosparam>
+    </node>
+
+
+
+  <!-- Nodes for plot and dynamic reconfigure -->
+
+	<!--<node name="rqt_plot" pkg="rqt_plot" type="rqt_plot" args="/control_effort/data /state/data /setpoint/data" />-->
+	<node name="rqt_reconfigure" pkg="rqt_reconfigure" type="rqt_reconfigure" />
+	<!--<node name="rqt_graph" pkg="rqt_graph" type="rqt_graph" />-->
+
+  <!-- Rosbag for plotting -->
+  <!-- <node pkg="rosbag" type="record" respawn="false" name="head_on" args=" record -o /home/revolt/revolt_ws/rosbags_colav/track_loss/revives /colav/plot /asv/state guidance /guidanceLaw/guidance_law_data /asv/offset /tracking/NIS /tracking/error /ais_dynamic"/> -->
+  
+</launch>

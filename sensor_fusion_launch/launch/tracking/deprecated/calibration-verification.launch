@@ -1,0 +1,132 @@
+<launch>
+
+
+
+    <!-- IMU node -->
+
+	<node name="xsensNode" pkg="xsens_driver" type="mtnode.py" respawn="true" output="screen" >
+		<param name="~baudrate" value="115200" />
+		<param name="~frame_id" value="/mti/data" />
+		<param name="~frame_local" value="NED" />
+		<param name="~frame_local_imu" value="NED" />
+		<param name="~send_nmea" value="true" />
+	</node>
+
+
+
+  <!-- GPS node -->
+  <node name="vectorVS330" pkg="nmea_navsat_driver" type="nmea_serial_driver" respawn="true" >
+		<param name="~baudrate" value="115200" />
+		<param name="~frame_id" value="/hemisphere" />
+  </node>
+
+ 
+  
+  <!-- Observer node -->
+  <node name="ObserverNode" pkg="observer" type="observer.py" respawn="true">
+    <param name="lat0" value="63.4391751633" />
+    <param name="lon0" value="10.4003291867" />
+    <param name="alt0" value="-2.423" />
+  </node>
+
+
+
+<!--LiDAR clustering and frame transformer -->
+<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
+
+
+
+
+<!--node name="framepublisher" pkg="frame_publisher" type="FramePublisher" respawn="true" output="screen"/>
+<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/-->
+
+<!-- Transforms -->
+<arg name="half_pi" value="$(eval pi/2)"/>
+<arg name="pi" value="$(eval pi)"/>
+<node pkg="tf2_ros" type="static_transform_publisher" name="enu_ned_broadcaster" args="0 0 0 $(arg half_pi) 0 $(arg pi) fixed ned"/>
+ 
+ <!--Handmeasured translation from cam to body, assuming paralell coordinate-systems -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="body_cam_broadcaster" args="1.31 0 -0.17 0 0 $(arg pi) body cameraframe"/>
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="cam_lidar_broadcaster" args="0.0115954 -0.193193 -0.039949 0.489951 1.54268 1.07342 percieved_calibrated_cam0_frame velodyne"/>
+ <!-- An additional rotation around the roll / z-axis is added to compensate for the unortodox camera-frames on the ladybug -->
+	<node pkg="tf2_ros" type="static_transform_publisher" name="realframecam0_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam0 percieved_calibrated_cam0_frame"/>
+	<node pkg="tf2_ros" type="static_transform_publisher" name="realframecam1_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam1 percieved_calibrated_cam1_frame"/>
+	<node pkg="tf2_ros" type="static_transform_publisher" name="realframecam2_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam2 percieved_calibrated_cam2_frame"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="realframecam3_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam3 percieved_calibrated_cam3_frame"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="realframecam4_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam4 percieved_calibrated_cam4_frame"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="realframecam5_precivedframe_broadcaster" args="0 0 0 -$(arg half_pi) 0 0 cam5 percieved_calibrated_cam5_frame"/>
+    
+    <!-- Values from ladybug calibration file is given as tx, ty, tz, Rz, Ry, Rx -->
+	<node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam0_broadcaster" args="0.060997 0.000523 -0.000248    2.154491 1.569960 2.154491 cameraframe cam0"/>
+	<node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam1_broadcaster" args="0.019350 -0.057733 0.000210   0.096592   1.570194 1.347821 cameraframe cam1"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam2_broadcaster" args="-0.049263 -0.036352 0.000161   2.292289 1.569963 -1.479256 cameraframe cam2"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam3_broadcaster" args="-0.049440 0.035336 -0.000077  -1.155121 1.569044 2.616579 cameraframe cam3"/>
+	<node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam4_broadcaster" args="0.018356 0.058226 -0.000046    1.562662 1.566492  0.306234 cameraframe cam4"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="ladybugframe_cam5_broadcaster" args="0.000547 0.000574 0.074800   3.140111 -0.000324 0.004084 cameraframe cam5"/>
+ 
+
+    <!--Fix this to final system, remove redundant transormation, also fix translation  -->
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="body_cam_broadcaster" args="0.95 0 -0.20 0 0 $(arg pi) body2 cameraframe"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="redundant_body_broadcaster" args="0  0 0 $(arg half_pi) 0 0 body body2"/> -->
+
+
+
+
+
+
+<!-- LiDAR -->
+<!-- Set gps-time to false to get rostime-->
+ <!-- declare arguments with default values -->
+  <arg name="calibration" default="$(find velodyne_pointcloud)/params/VLP16db.yaml"/>
+  <arg name="device_ip" default="" />
+  <arg name="frame_id" default="velodyne" />
+  <arg name="manager" default="$(arg frame_id)_nodelet_manager" />
+  <arg name="max_range" default="130.0" />
+  <arg name="min_range" default="0.4" />
+  <arg name="pcap" default="" />
+  <arg name="port" default="2368" />
+  <arg name="read_fast" default="false" />
+  <arg name="read_once" default="false" />
+  <arg name="repeat_delay" default="0.0" />
+  <arg name="rpm" default="600.0" />
+  <arg name="gps_time" default="false" />
+  <arg name="cut_angle" default="-0.01" />
+  <arg name="timestamp_first_packet" default="false" />
+  <arg name="laserscan_ring" default="-1" />
+  <arg name="laserscan_resolution" default="0.007" />
+  <arg name="organize_cloud" default="false" />
+
+  <!-- start nodelet manager and driver nodelets -->
+  <include file="$(find velodyne_driver)/launch/nodelet_manager.launch">
+    <arg name="device_ip" value="$(arg device_ip)"/>
+    <arg name="frame_id" value="$(arg frame_id)"/>
+    <arg name="manager" value="$(arg manager)" />
+    <arg name="model" value="VLP16"/>
+    <arg name="pcap" value="$(arg pcap)"/>
+    <arg name="port" value="$(arg port)"/>
+    <arg name="read_fast" value="$(arg read_fast)"/>
+    <arg name="read_once" value="$(arg read_once)"/>
+    <arg name="repeat_delay" value="$(arg repeat_delay)"/>
+    <arg name="rpm" value="$(arg rpm)"/>
+    <arg name="gps_time" value="$(arg gps_time)"/>
+    <arg name="cut_angle" value="$(arg cut_angle)"/>
+    <arg name="timestamp_first_packet" value="$(arg timestamp_first_packet)"/>
+  </include>
+
+  <!-- start cloud nodelet -->
+  <include file="$(find velodyne_pointcloud)/launch/cloud_nodelet.launch">
+    <arg name="calibration" value="$(arg calibration)"/>
+    <arg name="manager" value="$(arg manager)" />
+    <arg name="max_range" value="$(arg max_range)"/>
+    <arg name="min_range" value="$(arg min_range)"/>
+    <arg name="organize_cloud" value="$(arg organize_cloud)"/>
+  </include>
+
+  <!-- start laserscan nodelet -->
+  <include file="$(find velodyne_pointcloud)/launch/laserscan_nodelet.launch">
+    <arg name="manager" value="$(arg manager)" />
+    <arg name="ring" value="$(arg laserscan_ring)"/>
+    <arg name="resolution" value="$(arg laserscan_resolution)"/>
+  </include>
+</launch>

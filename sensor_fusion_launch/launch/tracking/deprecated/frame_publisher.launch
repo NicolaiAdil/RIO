@@ -1,0 +1,7 @@
+<launch>    
+    
+    <!--Publisher for BODY to NED-->
+	<node name="framepublisher" pkg="frame_publisher" type="FramePublisher" respawn="true" output="screen">
+        <param name="use_gps_time_in_publisher" value="false"/>
+    </node>
+</launch>

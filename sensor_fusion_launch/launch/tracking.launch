@@ -1,0 +1,65 @@
+<launch>
+
+    <arg name="use_gps_time" default="false"/>
+
+	<arg name="half_pi" value="$(eval pi/2)"/>
+    <arg name="pi" value="$(eval pi)"/>
+
+    <!-- TODO: Bug in transform-->
+    <!--Publisher for BODY to NED
+	<node name="framepublisher" pkg="frame_publisher" type="FramePublisher" respawn="true" output="screen">
+        <param name="~use_gps_time_in_publisher" value="false" />
+    </node>-->
+
+    <!-- Realtime validation node --> 
+    <node pkg="realtime_validation" name="realtime_validator" ns="realtime_validator" type="realtime_validator.py" output="screen"/>
+
+    <!--LiDAR clustering and frame transformer -->
+	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
+
+    <!-- Rectification and projection node
+    <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
+	 	<param name="~old_rosbag" value="false"/>
+	</node> -->
+    <!--node pkg="object_detection" name="test" type="test.py" output="screen"></node-->
+
+    <!-- Tracking node using autosea-ROS package -->
+	<node name="tracker" pkg="revolt_tracking" type="lidar_camera_tracker.py" ns="tracking" output="screen" respawn="true">
+        <param name="target_process_noise_covariance" value="0.1" />
+        <param name="gate_probability" value="0.99" />
+        <param name="maximum_velocity" value="8" />
+        <param name="detection_probability" value="0.9" />
+        <param name="M_init" value="25" />
+        <param name="N_init" value="30" />
+        <param name="N_terminate" value="5" />
+        <param name="ipda_survival_probability" value="1.0" />
+        <param name="ipda_init_prob" value="0.4" />
+        <param name="ipda_confirmation_threshold" value="0.9" />
+        <param name="ipda_termination_threshold" value="0.1" />
+        <param name="N_smooth" value="1" />
+        <param name="scan_topic" value="/lidar_centroids" />
+        <param name="camera_measurement_topic" value="/camera_measurement"/>
+        <param name="estimate_topic" value ="estimates" />
+        <param name="use_ipda" value="false"/>
+        <rosparam param="measurement_covariance_lidar">
+            type : cartesian
+            cartesian : 0.3906
+            range : 100.0
+            bearing : 0.001611
+        </rosparam>
+         <rosparam param="measurement_covariance_camera">
+            type : cartesian
+            cartesian : 0.5
+        </rosparam>
+    </node>
+
+      <!-- Visualization of track estimates in Rviz -->
+    <node name="visualizer" pkg="revolt_tracking" type="visualize_tracks.py" ns="visualizing" output="screen" respawn="true">
+        <param name="estimate_topic" value ="/tracking/estimates" />
+        <param name="marker_topic" value="rviz_marker" />
+        <param name="width" value="0.5" /> -->
+        <rosparam param="color">[1.0, 0.0, 0.0, 1.0]</rosparam>    RGBA 
+        <param name="max_line_length" value="5" /> 
+        <param name="end_width" value="1" />
+    </node>  
+</launch>

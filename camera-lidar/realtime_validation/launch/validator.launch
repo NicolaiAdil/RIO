@@ -1,0 +1,11 @@
+<launch>
+
+	<!--node pkg="rosbag" type="play" respawn="false" name="player" args=" ../rosbags/bag1.bag"></node-->
+
+ 	<node pkg="realtime_validation" name="realtime_validator" ns="realtime_validator" type="realtime_validator.py" output="screen">
+	 	<param name="~realtime_validation_topic" value="real_time_validation"/>
+	</node>
+
+
+
+</launch>

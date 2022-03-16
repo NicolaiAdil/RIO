@@ -1,0 +1,58 @@
+model:
+    vol: 0.26772994
+    m: 257
+    rho_sea: 1025
+    g: 9.807
+    lpp: 3
+    xg: 0
+    V_Iz: 0.31002165
+
+sensors:
+    VS330:
+        baud: 115200
+        frame_id: "hemisphere"
+        position: [0.0, 0.0, -0.4] # XYZ in NED
+
+    nmea_navsat:
+        port: "/dev/ttyS2"
+        baud: 115200
+    Xsens:
+        baud: 115200
+        frame_id: "mti/data"
+        frame_local: "NED"
+        frame_local_imu: "NED"
+        send_nmea: true
+
+    radar:
+        parameters:
+            pulseWidth: 0      # 0 = S21
+            range: 0           # 0 = 0.125, with unit defined by "unit"
+            unit: 1            # 1 = km
+            gain: 3           # percentage echo gain
+
+            # Note that changing the interpolation settings from 0 severely affects clustering performance
+            interpMode: 0       # (0=OFF/1=ON ( > sweep total)/2=ON (== sweep total))
+            interpNum : 0       # [0 SWEEP_LINE_CNT] samples interpolated for each spoke
+            interpSweepTotal: 0 # (0=2048/1=4096/2=8192/3=1024/4=720) total spokes BEFORE interpolation
+        sim:
+            P_FA: 0.01
+            P_D: 0.95
+            points_per_spoke: 884
+            spokes_per_rev: 2048
+            min_intensity: 0
+            max_intensity: 15
+        frames:
+            input: "radar"
+            output: "body"
+
+    camera: "nothing"
+
+rc_remote:
+    pwm:
+        min: 1070
+        max: 1930
+        neutral: 1500
+
+ais_decoder:
+    port: "/dev/ttyACM2"   # the location of the CYPHO-150 USB connection. If running from laptop in simulation, '/dev/ttyACM0' works for 2019 computers. Onboard: '/dev/ttyACM2' works on the two USB-ports on the left side (above the LAN1 port on the computer)
+    baud: 115200           # the standard given in the CYPHO-150 manual

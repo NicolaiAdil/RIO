@@ -1,0 +1,15 @@
+#Set which Ned origin you want to use in "chosen_ned_origin"
+NED_DORA: {
+  lat0: 63.4405472341,
+  lon0: 10.4229343948,
+}
+NED_PIRBADET: {
+  lat0: 63.4391751633, 
+  lon0: 10.4003291867,
+}
+
+NED_RAVNKLOA: {
+  lat0: 63.434929, 
+  lon0: 10.392594,
+}
+chosen_ned_origin: "/NED_RAVNKLOA"

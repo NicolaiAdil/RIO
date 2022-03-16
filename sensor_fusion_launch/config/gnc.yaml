@@ -1,0 +1,82 @@
+# Parameters for all guidance, navigation and control nodes.
+
+colav:
+    update_period: 3.0
+    desired_speed: 1.0
+
+    lookahead_distance: 100
+    delta_e:
+        min: 60
+        max: 120
+    gamma_inv: 300
+
+dp:
+    controller:
+        Kp: [10, 5, 40]
+        Ki: [0.3, 0.3, 0.3]
+        Kd: [30, 50, 80]
+        tau_max: [[41], [17.7], [19.9]]
+        include_FF: 1 # 0 to disable feed-forward, 1 to enable
+        FF_scaling: [1.0, 0.05, 1.0]
+    reference_model:
+        w:
+            N: 0.6
+            E: 0.6
+            psi: 1.4
+        zeta:
+            N: 1.0
+            E: 1.0
+            psi: 1.0
+        dist:
+            surge:
+                pos: 1.5
+                neg: -1.0
+            sway:
+                pos: 0.6
+                neg: -0.5
+            psi:
+                pos: 10.0
+                neg: -10.0
+        setpoint_radius: 30.0
+
+heading:
+    controller:
+        nomoto_K: -0.1371 
+        nomoto_T: 2.4457
+    reference_model:
+        zeta: 1
+        omega_n: 1
+
+speed:
+    controller:
+        Kp: 100
+        Ki: 7.5
+    reference_model:
+        zeta: 0.9994
+        omega_n: 0.1583
+
+gnss:
+    equator_radius: 6378137.0  
+    polar_radius: 6356752.314245
+    flattening: 0.00335281066
+
+ekf:
+    design_params:
+        gamma: 10 
+        epsilon: 0.0001
+        g: [0, 0, 9.8268261]
+    covariances:
+        process:
+            p: 0.10
+            q: 0.01
+            v: 0.10
+            a: 0.10
+            w: 0.02
+        observation:
+            p_vector: 0.02 # Horizontal accuracy 0.01m with RTK 0.3m with SBAS Vertical accuracy 0.02m RTK and 0.6 
+            q_vector: 0.01 # Heading accuracy of 0.2 deg
+            v_vector: 0.10 # SOG, COG assumed fairly good
+            p_xsens: 2.00  # Horizontal accuracy 2m vertical accuracy 5m
+            q_xsens: 0.05  # Accuracy in roll 0.3deg, pitch 0.3deg, yaw 1.0deg
+            v_xsens: 0.20  # Accuracy is 0.05m/s at 30m/s, bad at lower speeds
+    frequency: 20

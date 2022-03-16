@@ -1,0 +1,30 @@
+<launch>
+    <!-- Darknet and yolo configuration-->
+    
+    <!-- Console launch prefix -->
+    <arg name="launch_prefix" default=""/>
+
+    <!-- YOLO object detection config and weights folder -->
+    <arg name="yolo_weights_path" default="/home/revolt/revolt_ws/weights"/>
+    <arg name="yolo_config_path"  default="$(find darknet_ros)/yolo_network_config/cfg"/>
+
+    <!--ROS and network parameter files --> 
+    <arg name="ros_param_file"     default="$(find darknet_ros)/config/ros.yaml"/>
+    <arg name="network_param_file" default="$(find darknet_ros)/config/revolt.yaml"/>
+
+    <!--Load parameters -->
+    <rosparam command="load" ns="darknet_ros" file="$(arg ros_param_file)"/>
+    <rosparam command="load" ns="darknet_ros" file="$(arg network_param_file)"/>
+
+    <!--Start darknet and ros wrapper--> 
+    <node pkg="darknet_ros" type="darknet_ros" name="darknet_ros"  launch-prefix="$(arg launch_prefix)">
+        <param name="weights_path"          value="$(arg yolo_weights_path)"/>
+        <param name="config_path"           value="$(arg yolo_config_path)"/>
+    </node> 
+
+    <!-- Rectification and projection node -->
+    <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
+        <param name="~old_rosbag" value="false"/>
+    </node>
+
+</launch>

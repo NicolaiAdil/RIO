@@ -1,0 +1,72 @@
+world:
+    location: "dora" # Choose one of the locations below, "brattora", "dora", "pirbadet"
+    frame: "ned" # ned or enu
+
+brattora_ned:
+    lat0: 63.4391751633
+    lon0: 10.4003291867
+    alt0: -2.423
+
+dora_ned:
+    lat0: 63.4405472341
+    lon0: 10.4229343948
+    alt0: -2.423
+
+pirbadet_ned:
+    lat0: 63.4396684167
+    lon0: 10.3982980583
+    alt0: -2.423
+
+nidelva_transittgata:
+    lat0: 63.4415255024
+    lon0: 10.4138212912
+    alt0: -2.423
+
+# Below parameters are taken from the Autosea project
+autosea:
+    munkholmen_lla:
+        lat:
+            min: 63.450238
+            max: 63.454208
+        lon:
+            min: 10.381265
+            max: 10.387702
+    pier_lla:
+        lat:
+            min: 63.434162
+            max: 63.449205
+        lon:
+            min: 10.375214
+            max: 10.427055
+    trondheimsfjord_lla:
+        lat:
+            min: 63.4242
+            max: 63.6053
+        lon:
+            min: 10.1107
+            max: 10.7240
+
+    gunnerus_lla:
+        lat:
+            min: 63.4376
+            max: 63.4574
+        lon:
+            min: 10.3625
+            max: 10.4428
+
+    ned:
+        munkholmen:
+            id: 'NED_munkholmen'
+            llh: [1.107431, 0.181211, 39.92]
+        dorabassenget:
+            id: 'NED_dorabassenget'
+            llh: [1.10724642850, 0.181914522909, -0.0422893]
+        brattorabassenget:
+            id: 'NED_brattorabassenget'
+            llh: [1.10722248135, 0.181519987599, -0.0422893]
+
+    seapath:
+        world: 'NED_munkholmen'
+        ned: 'NED_seapath'
+        body: 'body_seapath'
+        surface: 'surface_seapath'
