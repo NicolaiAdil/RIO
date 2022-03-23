@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package>
+  <name>udp_receiver</name>
+  <version>0.0.0</version>
+  <description>The udp_ais package</description>
+  <maintainer email="tonjemi@stud.ntnu.no">portfence</maintainer>
+  <license>TODO</license>
+
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>custom_msgs</build_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>roslint</build_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>autosea_msgs</build_depend>
+
+
+  <run_depend>custom_msgs</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>roslint</run_depend>
+  <run_depend>rospy</run_depend>
+  <run_depend>std_msgs</run_depend>
+  <run_depend>autosea_msgs</run_depend>
+</package>
