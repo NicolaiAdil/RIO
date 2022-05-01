@@ -106,8 +106,8 @@ RUN apt-get -qq update --fix-missing && \
     ros-melodic-dynamic-reconfigure \
     ros-melodic-pcl-ros \
     ros-melodic-laser-geometry \
-    # ros-melodic-nmea-msgs \
-    # ros-melodic-nmea-comms \
+    ros-melodic-nmea-msgs \
+    ros-melodic-nmea-comms \
     ros-melodic-tf2-geometry-msgs \
     ros-melodic-image-transport \
     ros-melodic-rqt-reconfigure \
@@ -134,8 +134,9 @@ RUN apt-get -qq update --fix-missing && \
 # Start dbus service to allow GUI applications to run
 RUN service dbus start
 
-COPY . /sensor_fusion_ws
+COPY ./SensorFusion /sensor_fusion_ws/src
+COPY ./RevoltMsgs /sensor_fusion_ws/src
 RUN source /opt/ros/melodic/setup.bash && cd /sensor_fusion_ws && catkin build
 
-COPY ./entrypoint.sh /
+COPY ./SensorFusion/entrypoint.sh /
 ENTRYPOINT ["/entrypoint.sh"]
