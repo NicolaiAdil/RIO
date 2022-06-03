@@ -3,9 +3,9 @@ This repository contains all the higher-level sensor fusion systems currently (p
 
 A previous master thesis focused on fusing camera and lidar data, while the radar tracker has for the most part been developed separately, based on code from the autosea project. Much work remains to polish these systems and to seamlessly integrate them with both the real and digital twin.
 
-### sensor_fusion
+### SensorFusion/camera-lidar
 
-The [sensor_fusion](sensor_fusion/) folder consists of the following packages
+The subpackage [SensorFusion/camera-lidar](SensorFusion/camera-lidar) folder consists of the following packages
 
 * **frame_publisher**
     * Contains a node that takes data from the xsense IMU and the VS330 GNSS compass, and outputs the measured ship position in NED.
@@ -21,7 +21,41 @@ The [sensor_fusion](sensor_fusion/) folder consists of the following packages
 * **realtime validation**
     * A package that enables calculation of time occurences for different events, from a common time reference.
     * NB! Appears to be incomplete as of 03.06.2021
-    
+
+### SensorFusion/darknet_ros
+
+* **darknet**
+    * Contains darknet. A collection of neural network implentations used for computer vision.
+* **darknet_ros**
+    * Contains nodes that implement the ROS interface to darknet. We use the yolov3 part of this.
+* **darknet_ros_msgs**
+    * Contains the message types BoundingBox and BoundingBoxes that is used to convey these to ROS nodes.
+
+### SensorFusion/data_stream
+
+* **tcp_datatransciever**
+    * Used to forward ROS topics to the RMC (remote control center) via TCP.
+* **udp_receiver**
+    * Parses [NMEA standard](https://en.wikipedia.org/wiki/NMEA_0183) obstacle-data sent from ReVolt to a ROS topic.
+* **udp_video_stream**
+    * Subscribes to camera ROS topic and forwards it using UDP.
+
+### SensorFusion/radar_processing
+
+* **RadarPointsToClusters**
+    * Converts radar points to clusters.
+* **RadarSpokesToPoints**
+    * Converts radar spokes to points.
+
+### SensorFusion/revolt_tracking
+
+* **autoseapy_tracking**
+    * Contains autosea implementation of a tracking library. Contains a lot of different tools for track initiation, track management and tracking models.
+
+### SensorFusion/sensor_fusion_launch
+
+* **launch**
+    * Contains launch files for launching the tracking parts, camera tracking and LiDAR tracking.
 
 # Getting Started
 Like most other ReVolt submodules, this repository has its own Dockerfile and will run in its own container. To get started, perform the following steps:
