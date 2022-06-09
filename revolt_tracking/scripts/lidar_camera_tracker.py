@@ -143,7 +143,6 @@ def camera_scan_callback(msg, args):
     pdaf_tracker.set_measurement_type("camera")
     current_position = ownship_position(ownship_tf)
     manager.tracking_method.measurement_model.update_ownship(current_position)
-    # print(manager.tracking_method.measurement_model.ownship_position)
     timestamp = msg.header.stamp
     for angle_cam2target, confidence in zip(msg.bearing, msg.confidence):
 
@@ -212,7 +211,6 @@ if __name__ == "__main__":
 
     print("Init lidar camera tracker")
     # Update the autopy tracking parameters
-    # rospy.init_node("radar_tracker")
     rospy.init_node("lidar_camera_tracker")
     track_parameters = rospy.get_param("~")
     measurement_covariance_parameters = track_parameters["measurement_covariance_lidar"]
@@ -221,7 +219,6 @@ if __name__ == "__main__":
     ]
 
     # Setup tracking for Revolt
-    # target_model            = tracking_common.DWNAModel(track_parameters['target_process_noise_covariance'])
     target_model = tracking_common.DWNAModelRevolt(
         track_parameters["target_process_noise_covariance"]
     )

@@ -116,7 +116,6 @@ class PDAFTracker(object):
                 self.update_estimate(estimate)
             else:
                 self.trivial_update(estimate)
-                # print "No association probability={}".format(1.0)
         unused_measurements = measurements - used_measurements
         return estimates, unused_measurements
 
@@ -139,7 +138,6 @@ class PDAFTracker(object):
                 self.update_camera_estimate(estimate)
             else:
                 self.trivial_update(estimate)
-                # print "No association probability={}".format(1.0)
         unused_measurements = measurements - used_measurements
         return estimates, unused_measurements
 
@@ -153,7 +151,7 @@ class PDAFTracker(object):
     ):
         total_innovation = np.zeros(
             2
-        )  # np.sum([beta*inn for beta, inn in zip(association_probabilities[:-1], innovations)],axis=0)
+        )
         for innovation, beta in zip(innovations, association_probabilities[:-1]):
             total_innovation += beta * innovation
 
@@ -175,7 +173,6 @@ class PDAFTracker(object):
             + (1 - association_probabilities[-1]) * P_c
             + soi
         )
-        # print "No association probability={}".format(association_probabilities[-1])
         if np.any(np.linalg.eig(estimate.cov_posterior)[0] < 0):
             ipdb.set_trace()
 
@@ -212,10 +209,6 @@ class PDAFTracker(object):
 
         betas[-1] = 1 - P_D * P_G
         betas = betas / np.sum(betas)
-        # TODO Write the handling of unlinear measurments from camera using current position and current estimate
-        # H = @(x) [ -1*x(2)/(x(1)^2+x(2)^2),x(1)/((x(2)^2+x(1)^2)) zeros(1,2);zeros(1,4)];%[ 1*x(2)/(2*x(1)^2+x(2)^2),x(1)/(2*(x(2)^2+x(1)^2)) zeros(1,2);zeros(1,4)];
-        # print("Position in x, y ", get_ownship_transformation(self.tfBuffer))
-        # print "association probs={}".format(betas)
         kalman_gain = (
             estimate.cov_prior.dot(H.T).dot(S_inv).reshape((n_x, n_z))
         )  # Ensure the kalman gain is a proper matrix, even for 1D measurement
@@ -237,7 +230,6 @@ class PDAFTracker(object):
             betas[-1] * estimate.cov_prior + (1 - betas[-1]) * P_c + soi
         )
         self.update_existence_probability(estimate, innovation_all, S)
-        # print "No association probability={}".format(betas[-1])
 
     def update_camera_estimate(self, estimate):
         n_measurements = len(estimate.measurements)
@@ -297,7 +289,6 @@ class PDAFTracker(object):
             betas[-1] * estimate.cov_prior + (1 - betas[-1]) * P_c + soi
         )
         self.update_existence_probability(estimate, innovation_all, S)
-        # print "No association probability={}".format(betas[-1])
 
     def trivial_kinematic_update(self, estimate):
         estimate.est_posterior = estimate.est_prior
@@ -335,7 +326,6 @@ class IPDAFTracker(PDAFTracker):
         ] * estimate.existence_probability + self.P_markov[0, 1] * (
             1 - estimate.existence_probability
         )
-        # print "e_k={}".format([estimate.existence_probability, 1-estimate.existence_probability])
         innovation_prob_sum = 0
         innovation_probs = []
         for innovation in innovations:
@@ -364,15 +354,11 @@ class IPDAFTracker(PDAFTracker):
             * self.gate_method.gate_probability
             * (1 - innovation_prob_sum)
         )
-        # print "{} innovations, {}".format(len(innovation_probs), innovation_probs)
-        # print "innovation cov={}".format(innovation_covariance)
-        # print "l_k={}".format(1-delta)
         estimate.existence_probability = (
             (1 - delta)
             / (1 - delta * estimate.existence_probability)
             * estimate.existence_probability
         )
-        # print "e_k={}".format([estimate.existence_probability, 1-estimate.existence_probability])
 
 
 class MC2IPDAFTracker(PDAFTracker):
@@ -415,7 +401,6 @@ class MC2IPDAFTracker(PDAFTracker):
         association_probabilities = self.calculate_association_probabilities(
             estimate, innovation_probabilities, innovation_covariance
         )
-        # print "association probs={}".format(association_probabilities)
         kalman_gain = estimate.cov_prior.dot(
             self.measurement_model.measurement_mapping.T
         ).dot(np.linalg.inv(innovation_covariance))
@@ -477,11 +462,9 @@ class MC2IPDAFTracker(PDAFTracker):
                 likelihoods[j] += (
                     P_D ** P_G * clutter_density_inv * np.sum(innovation_probabilities)
                 )
-                # print "l_k={} for P_D={}".format(likelihoods[j], P_D)
         likelihoods[-1] = 1
         new_likelihoods = likelihoods * prior_existence_prob
         estimate.existence_probability = new_likelihoods / sum(new_likelihoods)
-        # print "e_k={}".format(estimate.existence_probability)
 
     def calculate_association_probabilities(
         self, estimate, innovation_probabilities, innovation_covariance
@@ -736,5 +719,4 @@ def get_measurement_timestamps(measurements_list):
 def get_ownship_transformation(transformer):
     # timestamp = 0 represents the latest transform
     trans = transformer.lookup_transform("ned", "body", rospy.Time(0))
-    # urrent_position = np.array([trans.transform.translation.x, trans.transform.translation.y])
     return trans
