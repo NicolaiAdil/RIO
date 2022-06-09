@@ -24,7 +24,7 @@
     <!--node pkg="object_detection" name="test" type="test.py" output="screen"></node-->
 
     <!-- Tracking node using autosea-ROS package -->
-	<node name="tracker" pkg="revolt_tracking" type="lidar_camera_tracker.py" ns="tracking" output="screen" respawn="true">
+	<node name="tracker" pkg="revolt_tracking" type="lidar_camera_tracker.py" ns="tracking" output="screen" respawn="false">
         <param name="target_process_noise_covariance" value="0.1" />
         <param name="gate_probability" value="0.99" />
         <param name="maximum_velocity" value="8" />
@@ -54,7 +54,7 @@
     </node>
 
       <!-- Visualization of track estimates in Rviz -->
-    <node name="visualizer" pkg="revolt_tracking" type="visualize_tracks.py" ns="visualizing" output="screen" respawn="true">
+    <node name="visualizer" pkg="revolt_tracking" type="visualize_tracks.py" ns="visualizing" output="screen" respawn="false">
         <param name="estimate_topic" value ="/tracking/estimates" />
         <param name="marker_topic" value="rviz_marker" />
         <param name="width" value="0.5" /> -->
