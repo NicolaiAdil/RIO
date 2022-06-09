@@ -195,7 +195,6 @@ class IPDAInitiator(object):
             self.current_track_index += 1
 
     def check_track_confirmation(self, estimate):
-        # print("Existence probability: ", estimate.existence_probability, "Confirmation threshold: ", self.confirmation_threshold)
         return estimate.existence_probability > self.confirmation_threshold
 
     def check_track_termination(self, estimate):
@@ -404,7 +403,6 @@ class Cluster(object):
         new_leaves = []
         for leaf in current_leaves:
             new_prior = self.target_model.step(leaf.estimate, timestamp)
-            # gated_measurements = measurements
             gated_measurements = self.gate.gate_estimate(
                 new_prior, measurements, self.measurement_model
             )
@@ -412,7 +410,6 @@ class Cluster(object):
                 self.measurements_all.add(measurement)
                 for measurement in gated_measurements
             ]
-            # print "gated {1}/{0} measurements".format(len(measurements), len(gated_measurements))
             for measurement in gated_measurements:
                 new_node = Node(
                     measurement,
