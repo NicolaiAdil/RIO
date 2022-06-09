@@ -3,7 +3,9 @@ import numpy as np
 import tracking
 import track_initiation
 import tracking_common
+from threading import Lock
 
+mutex = Lock()
 
 class Manager(object):
     """Generic track manager.
@@ -151,13 +153,13 @@ class Manager(object):
         return cls(PDAF_tracker, mn_init, mn_term)
 
     def reset(self):
-        # TODO should add a mutex
+        mutex.acquire()
         self.track_file = dict()
         self.active_tracks = set()
         self.tracking_method.reset()
         self.termination_method.reset()
         self.initiation_method.reset()
-
+        mutex.release()
 
 class MOfNManager(Manager):
     """Integrated M-of-N Manager. Checks last M of N scans, independent of status changes"""
