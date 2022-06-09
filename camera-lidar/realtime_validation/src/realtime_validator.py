@@ -81,8 +81,3 @@ rospy.Subscriber(
 
 while not rospy.is_shutdown():
     rospy.spin()
-
-# print("Print dict here")
-# for keys,values in system_times.items():
-#    print(keys)
-#    print(values)
