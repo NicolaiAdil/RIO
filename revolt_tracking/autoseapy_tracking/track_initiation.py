@@ -443,7 +443,7 @@ class Cluster(object):
                 prob_altHyp.append(leaf_prob_altHyp)
             prob_altHyp = np.sum(prob_altHyp)
         else:  # Construct tree and evaluate the likelihood
-            # this should be fixed
+            # this should be fixed # Don't know what "this" is, but seems ok 2022JUN09
             z = measurements.pop()
             self.root_node = Node(
                 z, None, self.gate.v_max, self.target_model, self.measurement_model
