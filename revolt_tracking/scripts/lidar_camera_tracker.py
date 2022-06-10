@@ -95,7 +95,7 @@ def lidar_scan_callback(msg, args):
     pdaf_tracker.set_measurement_type("lidar")
     current_position = ownship_position(ownship_tf)
     manager.tracking_method.measurement_model.update_ownship(current_position)
-    for cluster in msg.radar_scan:
+    for cluster in msg.lidar_scan:
         value = np.array([cluster.centroid.x, cluster.centroid.y])
         if np.linalg.norm(value) == np.inf:
             rospy.logwarn("Cluster centroid at infinity; discarding measurement")
@@ -130,47 +130,6 @@ def lidar_scan_callback(msg, args):
     [publish_estimate(est, track_pub) for est in estimates]
     for new_track in new_tracks:
         [publish_estimate(estimate, track_pub) for estimate in new_track]
-
-
-def camera_scan_callback(msg, args):
-
-    track_pub, manager, ownship_tf, cov_parameters, pdaf_tracker = args
-    current_measurements = set()
-
-    # ----- Start mutex ------
-    mutex.acquire()
-
-    pdaf_tracker.set_measurement_type("camera")
-    current_position = ownship_position(ownship_tf)
-    manager.tracking_method.measurement_model.update_ownship(current_position)
-    timestamp = msg.header.stamp
-    for angle_cam2target, confidence in zip(msg.bearing, msg.confidence):
-
-        camera_id = msg.image_header.frame_id
-        covariance = cov_parameters["cartesian"]
-
-        # _,q              =  tf.lookupTransform("body",camera_id, rospy.Time(0)) #Output is a quaternion
-        # euler            = euler_from_quaternion(q)
-        # angle_ned2cam    = euler[2] #Want the rotation about z-axis
-
-        # The object detection output, angle_cam2target, gives angle to target relative to the camera
-        # Need to convert this angle to ned-frame  -> ned2cam + cam2target
-        # angle_ned2target = angle_ned2cam + np.deg2rad(angle_cam2target)
-        measurement = angle_cam2target  # Redundant, but follows convention. Easier to follow the tracking pipeline when using the variable "measurement"
-
-        z = tracking_common.CameraMeasurement(
-            camera_id, measurement, timestamp, covariance, logger=rospy
-        )
-        current_measurements.add(z)
-
-    # Get target estimates. New tracks are only initiated with lidar due to angle measurement
-    estimates, _ = manager.step(current_measurements, timestamp)
-
-    # ----- End mutex ---------
-    mutex.release()
-
-    # Publish estimates and covariance for visualization
-    [publish_estimate(est, track_pub) for est in estimates]
 
 def radar_scan_callback(msg, args):
 
@@ -218,6 +177,47 @@ def radar_scan_callback(msg, args):
     [publish_estimate(est, track_pub) for est in estimates]
     for new_track in new_tracks:
         [publish_estimate(estimate, track_pub) for estimate in new_track]
+
+def camera_scan_callback(msg, args):
+
+    track_pub, manager, ownship_tf, cov_parameters, pdaf_tracker = args
+    current_measurements = set()
+
+    # ----- Start mutex ------
+    mutex.acquire()
+
+    pdaf_tracker.set_measurement_type("camera")
+    current_position = ownship_position(ownship_tf)
+    manager.tracking_method.measurement_model.update_ownship(current_position)
+    timestamp = msg.header.stamp
+    for angle_cam2target, confidence in zip(msg.bearing, msg.confidence):
+
+        camera_id = msg.image_header.frame_id
+        covariance = cov_parameters["cartesian"]
+
+        # _,q              =  tf.lookupTransform("body",camera_id, rospy.Time(0)) #Output is a quaternion
+        # euler            = euler_from_quaternion(q)
+        # angle_ned2cam    = euler[2] #Want the rotation about z-axis
+
+        # The object detection output, angle_cam2target, gives angle to target relative to the camera
+        # Need to convert this angle to ned-frame  -> ned2cam + cam2target
+        # angle_ned2target = angle_ned2cam + np.deg2rad(angle_cam2target)
+        measurement = angle_cam2target  # Redundant, but follows convention. Easier to follow the tracking pipeline when using the variable "measurement"
+
+        z = tracking_common.CameraMeasurement(
+            camera_id, measurement, timestamp, covariance, logger=rospy
+        )
+        current_measurements.add(z)
+
+    # Get target estimates. New tracks are only initiated with lidar due to angle measurement
+    estimates, _ = manager.step(current_measurements, timestamp)
+
+    # ----- End mutex ---------
+    mutex.release()
+
+    # Publish estimates and covariance for visualization
+    [publish_estimate(est, track_pub) for est in estimates]
+
 
 
 def service_handler(tracking_requirements, track_manager, ownship_tf, N_smooth):
