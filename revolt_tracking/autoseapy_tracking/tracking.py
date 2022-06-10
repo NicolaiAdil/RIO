@@ -67,7 +67,8 @@ class PDAFTracker(object):
     ):
         self.target_model = target_model
         self.lidar_measurement_model = measurement_model[0]
-        self.camera_measurement_model = measurement_model[1]
+        self.radar_measurement_model = measurement_model[1]
+        self.camera_measurement_model = measurement_model[2]
         self.measurement_model = measurement_model[0]
         self.gate_method = gate_method
         self.P_markov = np.array(
@@ -85,6 +86,12 @@ class PDAFTracker(object):
         if self.measurement_type == "lidar":
             self.measurement_model = self.lidar_measurement_model
             estimates, unused_measurements = self.step_lidar(
+                old_estimates, measurements, timestamp
+            )
+
+        elif self.measurement_type == "radar":
+            self.measurement_model = self.radar_measurement_model
+            estimates, unused_measurements = self.step_radar(
                 old_estimates, measurements, timestamp
             )
 
@@ -116,6 +123,29 @@ class PDAFTracker(object):
                 self.update_estimate(estimate)
             else:
                 self.trivial_update(estimate)
+        unused_measurements = measurements - used_measurements
+        return estimates, unused_measurements
+
+    def step_radar(self, old_estimates, measurements, timestamp):
+        estimates = [
+            self.target_model.step(old_est, timestamp) for old_est in old_estimates
+        ]
+        if self.measurement_model.clutter_model is not None:
+            self.measurement_model.clutter_model.update_estimate(measurements)
+        used_measurements = set()
+        for estimate in estimates:
+            gated_measurements = self.gate_method.gate_estimate(
+                estimate, measurements, self.measurement_model
+            )
+            used_measurements = used_measurements | gated_measurements
+        # Update detection_probability here.
+        self.measurement_model.update_detection_probability(estimates, self.gate_method)
+        for estimate in estimates:
+            if len(estimate.measurements) > 0:
+                self.update_estimate(estimate)
+            else:
+                self.trivial_update(estimate)
+                # print "No association probability={}".format(1.0)
         unused_measurements = measurements - used_measurements
         return estimates, unused_measurements
 
