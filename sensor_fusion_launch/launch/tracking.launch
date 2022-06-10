@@ -17,6 +17,9 @@
     <!--LiDAR clustering and frame transformer -->
 	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
 
+    <!--RADAR clustering and frame transformer -->
+	<node name="radarprocessor" pkg="radar_processing" type="RadarProcessor" respawn="true" output="screen"/>
+
     <!-- Rectification and projection node
     <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
 	 	<param name="~old_rosbag" value="false"/>
@@ -38,7 +41,7 @@
         <param name="ipda_termination_threshold" value="0.1" />
         <param name="N_smooth" value="1" />
         <param name="lidar_scan_topic" value="/lidar_centroids" />
-        <param name="radar_scan_topic" value="/radar_centroids" />
+        <param name="radar_scan_topic" value="/radar/scan" />
         <param name="camera_measurement_topic" value="/camera_measurement"/>
         <param name="estimate_topic" value ="estimates" />
         <param name="use_ipda" value="false"/>
