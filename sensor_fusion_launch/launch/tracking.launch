@@ -37,7 +37,8 @@
         <param name="ipda_confirmation_threshold" value="0.9" />
         <param name="ipda_termination_threshold" value="0.1" />
         <param name="N_smooth" value="1" />
-        <param name="scan_topic" value="/lidar_centroids" />
+        <param name="lidar_scan_topic" value="/lidar_centroids" />
+        <param name="radar_scan_topic" value="/radar_centroids" />
         <param name="camera_measurement_topic" value="/camera_measurement"/>
         <param name="estimate_topic" value ="estimates" />
         <param name="use_ipda" value="false"/>

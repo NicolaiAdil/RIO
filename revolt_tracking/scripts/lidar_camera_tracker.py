@@ -327,7 +327,7 @@ if __name__ == "__main__":
     track_publisher = rospy.Publisher(
         estimate_topic, automsg.RadarEstimate, queue_size=10
     )
-    scan_topic = rospy.get_param("~scan_topic", "lidar_centroids")
+    lidar_scan_topic = rospy.get_param("~lidar_scan_topic", "lidar_centroids")
     rospy.Subscriber(
         scan_topic,
         automsg.RadarScan,
@@ -341,7 +341,7 @@ if __name__ == "__main__":
         ),
         queue_size=1,
     )
-    radar_scan_topic = rospy.get_param("~radar_topic", "radar_centroids")
+    radar_scan_topic = rospy.get_param("~radar_scan_topic", "radar_centroids")
     rospy.Subscriber(
         scan_topic,
         automsg.RadarScan,
