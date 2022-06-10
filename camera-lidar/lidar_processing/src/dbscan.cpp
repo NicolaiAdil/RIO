@@ -35,8 +35,6 @@ pcl::PointCloud<pcl::PointXYZ> DBScan::cluster(PtCloud &kd_cloud) {
       ret_matches.reserve(reserveSize);
       queryPoint[0] = kd_cloud.pts[i].x;
       queryPoint[1] = kd_cloud.pts[i].y;
-      //            float radius = kd_cloud.pts[i].distance;
-      //            float radius = pow(kd_cloud.pts[i].distance, 2);
 
       const std::size_t nMatches = index.radiusSearch(
           queryPoint, pow(kd_cloud.pts[i].distance, 2), ret_matches, params);
@@ -95,7 +93,5 @@ pcl::PointCloud<pcl::PointXYZ> DBScan::cluster(PtCloud &kd_cloud) {
     centroids.points.emplace_back(pcl::PointXYZ(p.x(), p.y(), 0.0));
     centroids.width += 1;
   }
-  // ROS_INFO_STREAM("clusters: " << clusters.size() << "Lone points: " <<
-  // counter);
   return centroids;
 }
