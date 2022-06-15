@@ -51,6 +51,14 @@
             range : 100.0
             bearing : 0.001611
         </rosparam>
+        <rosparam param="measurement_covariance_radar">
+        <!-- TODO: Make better guesstimate of covariance. -->
+        <!-- TODO: Extend radar to measure velocity as well? -->
+            type : cartesian
+            cartesian : 0.3906*2
+            range : 300.0
+            bearing : 0.001611*1.5
+        </rosparam>
          <rosparam param="measurement_covariance_camera">
             type : cartesian
             cartesian : 0.5

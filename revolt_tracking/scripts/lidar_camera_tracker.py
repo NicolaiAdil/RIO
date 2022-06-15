@@ -278,6 +278,12 @@ if __name__ == "__main__":
         track_parameters["detection_probability"],
         clutter_model=tracking_common.NonparametricClutterModel(),
     )
+    radar_measurement_model = tracking_common.CartesianMeasurementModel(
+        H,
+        measurement_covariance_parameters_radar["cartesian"] * np.identity(2),
+        track_parameters["detection_probability"],
+        clutter_model=tracking_common.NonparametricClutterModel(),
+    )
     camera_measurement_model = tracking_common.NonlinearMeasurementModel(
         np.array([[1, 0, 0, 0]]),
         measurement_covariance_parameters_camera["cartesian"],
