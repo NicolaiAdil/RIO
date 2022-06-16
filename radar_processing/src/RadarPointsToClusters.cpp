@@ -125,7 +125,35 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "points_to_cluster");
   ros::NodeHandle nh;
   PclClustering clustering_node(nh);
-  ros::spin();
+  landmap = new Landmap();
 
+  double refLat, refLon;
+  std::string location, frame_type;
+  nh.getParam("/world/location", location);
+  nh.getParam("/world/frame", frame_type);
+
+  std::string world_frame = "/" + location + "_" + frame_type;
+  nh.getParam(world_frame + "/lat0", refLat);
+  nh.getParam(world_frame + "/lon0", refLon);
+
+  landmap->initialize(refLat, refLon);
+  // The following is only used to publish the land_cloud once made.
+  // Should already be published when lidar_clustering is running.
+  // Consider commenting it out.
+  land_cloud = new pcl::PointCloud<pcl::PointXYZ>();
+  land_cloud->header.frame_id = "fixed";
+  land_cloud->height = 1;
+  for (int n_int = -1000; n_int < 1000; n_int++) {
+    for (int e_int = -1000; e_int < 1000; e_int++) {
+      double n = double(n_int) * 0.5;
+      double e = double(e_int) * 0.5;
+      if (landmap->isLand(n, e)) {
+        land_cloud->points.push_back(pcl::PointXYZ(e, n, 0.0));
+        land_cloud->width += 1;
+      }
+    }
+  }
+  
+  ros::spin();
   return 0;
 }
