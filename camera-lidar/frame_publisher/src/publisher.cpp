@@ -24,13 +24,6 @@
 const double refLat = 63.440575 * DEG2RAD;
 const double refLon = 10.413617 * DEG2RAD;
 
-double avg_lat = 0.0;
-double avg_lon = 0.0;
-double sum_lat = 0.0;
-double sum_lon = 0.0;
-double lat_counter = 0.0;
-double lon_counter = 0.0;
-
 // Rad values
 double roll = -10;
 double pitch = -10;
