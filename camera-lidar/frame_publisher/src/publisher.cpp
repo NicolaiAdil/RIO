@@ -43,23 +43,9 @@ ros::Publisher ownship_position;
 void vectorFix_callback(const custom_msgs::gnssGGA &input) {
   static tf2_ros::TransformBroadcaster br;
 
-  // TODO Fix timestamp from gps
-  // ros::Time fixStamp = ros::Time::now();
+  // TODO Fix timestamp from gps // Seems to be done?? summer 2022
   ros::Time ros_time = ros::Time::now();
   ros::Time fixStamp = input.sat_time;
-  // ROS_INFO_STREAM("Received timestamp: "<< fixStamp << " System time: " <<
-  // ros_time);
-
-  if (input.latitude < 63.444 && input.latitude > 63.439) {
-    sum_lat += input.latitude;
-    lat_counter += 1.0;
-    avg_lat = sum_lat / lat_counter;
-  }
-  if (input.longitude < 10.426 && input.longitude > 10.42) {
-    sum_lon += input.longitude;
-    lon_counter += 1.0;
-    avg_lon = sum_lon / lon_counter;
-  }
 
   double lat = input.latitude * DEG2RAD;
   double lon = input.longitude * DEG2RAD;
@@ -83,11 +69,6 @@ void vectorFix_callback(const custom_msgs::gnssGGA &input) {
   tf2::Vector3 vec(0, 0, 0);
   body_bned_tf.setOrigin(vec);
   tf2::Transform ned2body = body_bned_tf.inverse();
-
-  // ROS_INFO_STREAM("x: "<< body_bned_q.x() << " y: " << body_bned_q.y() << "
-  // z: " << body_bned_q.z()<<"w: " << body_bned_q.w()); ROS_INFO_STREAM("roll:
-  // "<< roll << " pitch: " << pitch << " yaw: " << yaw << " heading: " <<
-  // heading);
 
   // Lever arm compen sation
   tf2::Vector3 cg_gps_body;
@@ -132,7 +113,6 @@ void vectorFix_callback(const custom_msgs::gnssGGA &input) {
 
 void vectorHeading_callback(const custom_msgs::gnssHDT &input) {
   heading = (input.heading) * DEG2RAD;
-  //    ROS_INFO_STREAM("vectorHeading: " << heading);
 }
 
 void xsensImu_callback(const custom_msgs::ImuSensor &input) {
