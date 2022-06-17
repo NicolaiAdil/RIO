@@ -28,6 +28,10 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 }
 
 void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
+  // For all points convert to NED
+
+  // For all points check if isLand and omit
+  // Make new cloud with only sea points.
   KdTree::Ptr tree{new KdTree};
   tree->setInputCloud(cloud);
   euclidean_clustering.setSearchMethod(tree);
@@ -139,7 +143,7 @@ int main(int argc, char **argv) {
   landmap->initialize(refLat, refLon);
   // The following is only used to publish the land_cloud once made.
   // Should already be published when lidar_clustering is running.
-  // Consider commenting it out.
+  // Consider removing.
   land_cloud = new pcl::PointCloud<pcl::PointXYZ>();
   land_cloud->header.frame_id = "fixed";
   land_cloud->height = 1;
