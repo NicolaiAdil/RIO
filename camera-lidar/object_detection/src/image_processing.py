@@ -43,7 +43,6 @@ class image_proscessing(object):
                 0.0005428461035833637,
             ]
         )
-        # self.distort = np.array([-0.23907962033407562, 0.039687681139140195, 7.384797554933222e-05,0.00013894141447898904])
         self.crop_x, self.crop_y = 0, 0  # 216,600
         self.height, self.width = 0, 0
 
@@ -94,7 +93,6 @@ class image_proscessing(object):
 
         dst = cv.undistort(cv_image, self.mtx, self.distort, None, None)
         self.height, self.width = dst.shape[:2]
-        # print("Self. heigh ", self.height, " Self.Width: ",self.width)
         undis_image = dst[
             self.crop_y : self.height - self.crop_y,
             self.crop_x : self.width - self.crop_x,
@@ -196,7 +194,6 @@ class image_projecting(object):
         for box in bounding_boxes.bounding_boxes:
             if box.Class == "boat":
 
-                # Depending on the FOV of the camera, one should chose either arctan or arcsin. arcsin for camera with high fov
                 # Normalized values, x_hat.item(2)=0 = normalized Z
                 bb_center_x, bb_center_y = (
                     (box.xmin + box.xmax) / 2,
@@ -206,6 +203,8 @@ class image_projecting(object):
                 k_matrix = self.matrixDict.get(image_frame)
                 x_c = np.array([[bb_center_x], [bb_center_y], [1]])
                 x_hat = np.linalg.inv(k_matrix) * x_c
+
+                # Depending on the FOV of the camera, one should chose either arctan or arcsin. arcsin for camera with high fov
                 angle = np.arctan(x_hat.item(0))
                 # angle   = np.arcsin(x_hat.item(0)/x_hat.item(2))
 

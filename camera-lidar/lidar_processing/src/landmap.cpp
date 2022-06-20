@@ -215,10 +215,8 @@ void traversePolygon(std::vector<polygonPoint_t> &points,
   polygonPoint_t point2;
   polygonPoint_t curPoint;
   for (std::vector<int>::size_type i = 1; i < points.size(); i++) {
-    //        ROS_INFO_STREAM("Checking points ");
     point2 = points[i];
     if (checkPointsinArea(point1, point2)) {
-      //            ROS_INFO_STREAM("Checked points ");
       double edgeLength =
           sqrt(pow(point2.n - point1.n, 2) + pow(point2.e - point1.e, 2));
       double n_unit = (point2.n - point1.n) / edgeLength;

@@ -38,8 +38,8 @@ class DefaultLogger(object):
 
 def multivariate_normal_pdf(z, z_hat, S):
     S_inv = np.linalg.inv(S)
+    # TODO: Check if this z_hat should be commented back in!
     nu = z  # - z_hat
-    # print(S.shape, S_inv.shape, z.shape, z_hat.shape)
     num = np.exp(-0.5 * nu.T.dot(S_inv.dot(nu)))
     denom = 2 * np.pi * np.sqrt(np.linalg.det(S))
     return num / denom
@@ -437,7 +437,6 @@ class NonlinearMeasurementModel(MeasurementModel):
 
         """
 
-        # print("cam1")
         t, q = self.tf.lookupTransform(
             "ned", "cam1", rospy.Time(0)
         )  # Output is a quaternion
@@ -595,21 +594,15 @@ class TrackGate(object):
             # camera measurement
             if type(estimate.z_hat) == np.float64:
                 S_inv = 1 / estimate.S
-                # print("nu*(S_inv)*nu. ", nu*(S_inv)*nu, " gamma ", self.gamma)
                 self.received += 1
                 if nu * (S_inv) * nu < self.gamma:
-
                     self.accepted += 1
                     estimate.store_measurement(measurement)
                     measurements_used.add(measurement)
-
             else:
                 # lidar measurement
                 S_inv = np.linalg.inv(estimate.S)
-                # print("z: ", z, "z_hat: ", estimate.z_hat, "nu: ", nu)
                 if nu.T.dot(S_inv).dot(nu) < self.gamma:
-                    # print("S_inv: ", S_inv, "nu: ", nu, "product: ", nu.T.dot(S_inv).dot(nu))
-
                     estimate.store_measurement(measurement)
                     measurements_used.add(measurement)
         return measurements_used
@@ -627,7 +620,6 @@ class TrackGate(object):
         d = d_plus + d_minus
         R_initiator = center_measurement.covariance
         R_measurement = test_measurement.covariance
-        # print(d.shape, R_initiator.shape, R_measurement.shape)
         D = d.dot(np.linalg.inv(R_initiator + R_measurement)).dot(d)
         return D < self.gamma
 

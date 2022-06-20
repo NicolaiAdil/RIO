@@ -195,7 +195,6 @@ class IPDAInitiator(object):
             self.current_track_index += 1
 
     def check_track_confirmation(self, estimate):
-        # print("Existence probability: ", estimate.existence_probability, "Confirmation threshold: ", self.confirmation_threshold)
         return estimate.existence_probability > self.confirmation_threshold
 
     def check_track_termination(self, estimate):
@@ -404,7 +403,6 @@ class Cluster(object):
         new_leaves = []
         for leaf in current_leaves:
             new_prior = self.target_model.step(leaf.estimate, timestamp)
-            # gated_measurements = measurements
             gated_measurements = self.gate.gate_estimate(
                 new_prior, measurements, self.measurement_model
             )
@@ -412,7 +410,6 @@ class Cluster(object):
                 self.measurements_all.add(measurement)
                 for measurement in gated_measurements
             ]
-            # print "gated {1}/{0} measurements".format(len(measurements), len(gated_measurements))
             for measurement in gated_measurements:
                 new_node = Node(
                     measurement,
@@ -446,7 +443,7 @@ class Cluster(object):
                 prob_altHyp.append(leaf_prob_altHyp)
             prob_altHyp = np.sum(prob_altHyp)
         else:  # Construct tree and evaluate the likelihood
-            # this should be fixed
+            # this should be fixed # Don't know what "this" is, but seems ok 2022JUN09
             z = measurements.pop()
             self.root_node = Node(
                 z, None, self.gate.v_max, self.target_model, self.measurement_model

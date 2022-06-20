@@ -115,9 +115,10 @@ def pub_tracks(track_pub, estimates, marker_properties):
     end_point.header = marker_header
     cep = estimate2cep
     track_pub.publish(end_point)
-    vel_text = estimate2text(estimates[-1])
-    vel_text.header = marker_header
-    # track_pub.publish(vel_text)
+    # Adds velocity text to marker:
+    # vel_text = estimate2text(estimates[-1])
+    # vel_text.header = marker_header
+    # track_pub.publish(vel_text) # This line adds a text with velocity of the marker
 
 
 if __name__ == "__main__":
