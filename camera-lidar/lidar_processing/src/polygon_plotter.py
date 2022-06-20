@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 # This is a debug tool for the landArea.csv files.
 # Usage: run python3 polygon_plotter.py <name of your csv>
-
+# Note that the values on the axis are scaled by 1e6
+# to ensure that the polygons havew correct resolution
 
 class Point(NamedTuple):
     x: float
