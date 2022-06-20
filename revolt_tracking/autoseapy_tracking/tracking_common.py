@@ -38,6 +38,7 @@ class DefaultLogger(object):
 
 def multivariate_normal_pdf(z, z_hat, S):
     S_inv = np.linalg.inv(S)
+    # TODO: Check if this z_hat should be commented back in!
     nu = z  # - z_hat
     num = np.exp(-0.5 * nu.T.dot(S_inv.dot(nu)))
     denom = 2 * np.pi * np.sqrt(np.linalg.det(S))
