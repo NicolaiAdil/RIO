@@ -27,7 +27,8 @@ private:
   ros::Publisher scan_pub;
 
   int pub_seq;
-  std::string output_frame;
+  std::string output_frame_id;
+  std::string input_frame_id;
 
   pcl::EuclideanClusterExtraction<pcl::PointXYZ> euclidean_clustering;
 

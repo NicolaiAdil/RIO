@@ -1,6 +1,13 @@
 #include "radar_processing/RadarPointsToClusters.hpp"
 
+tf::TransformListener *pListener = NULL;
+Landmap *landmap = NULL;
+pcl::PointCloud<pcl::PointXYZ> *land_cloud = NULL;
+
 PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
+  // Change Timestamp to gps-time during normal run // Not documented how to :( 
+  ros::Time pc2Stamp = ros::Time::now();
+
   std::string point_cloud_topic, hulls_topic, scan_topic;
   nh.param<std::string>("/topics/hardware/furuno_radar/point_cloud",
                         point_cloud_topic, "/radar/points");
@@ -8,6 +15,25 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
                         "/radar/hulls");
   nh.param<std::string>("/topics/hardware/furuno_radar/scan", scan_topic,
                         "/radar/scan");
+
+  if (!nh.getParam("/sensors/radar/frames/output", input_frame_id)) {
+    input_frame_id = "radar"; // NOTE: This is the OUTPUT from the 
+                              // spokes_to_points node, which is our INPUT
+    ROS_WARN_STREAM(
+        "No input frame specified, points input in: " << input_frame_id);
+    input_frame_id = input_frame_id;
+  } else {
+    ROS_INFO_STREAM("Input frame set to: " << input_frame_id);
+  }
+  
+  if (!nh.getParam("/sensors/radar/frames/cluster_output", output_frame_id)) {
+    output_frame_id = "ned";
+    ROS_WARN_STREAM(
+        "No cluster output frame specified, points input in: " << output_frame_id);
+  } else {
+    ROS_INFO_STREAM("Cluster output frame set to: " << output_frame_id);
+  }
+
 
   pcl_sub = nh.subscribe<PointCloud>(point_cloud_topic, 1,
                                      &PclClustering::pcl_cb, this);
@@ -29,9 +55,19 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 
 void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
   // For all points convert to NED
-
+  pListener->waitForTransform("fixed", "radar", pc2Stamp, ros::Duration(1.0));
+  pListener->lookupTransform("fixed", "radar", pc2Stamp, transform);
+  pListener->lookupTransform("ned", "radar", pc2Stamp, transform2);
+  pListener->lookupTransform("fixed", "ned", pc2Stamp, fixed_ned_transform);
   // For all points check if isLand and omit
   // Make new cloud with only sea points.
+
+  for (auto point : cloud){
+
+    if landmap->isLand(point.x, point.y){
+
+    }
+  }
   KdTree::Ptr tree{new KdTree};
   tree->setInputCloud(cloud);
   euclidean_clustering.setSearchMethod(tree);
@@ -140,6 +176,7 @@ int main(int argc, char **argv) {
   nh.getParam(world_frame + "/lat0", refLat);
   nh.getParam(world_frame + "/lon0", refLon);
 
+  pListener = new tf::TransformListener(ros::Duration(3.0));
   landmap->initialize(refLat, refLon);
   // The following is only used to publish the land_cloud once made.
   // Should already be published when lidar_clustering is running.
