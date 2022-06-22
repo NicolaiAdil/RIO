@@ -47,17 +47,15 @@
         <param name="use_ipda" value="false"/>
         <rosparam param="measurement_covariance_lidar">
             type : cartesian
-            cartesian : 0.3906
-            range : 100.0
-            bearing : 0.001611
+            cartesian : 0.3906 <!-- Seems inflated (look up data sheet)-->
+            range : 0.0005
+            bearing : 0.000305
         </rosparam>
         <rosparam param="measurement_covariance_radar">
-        <!-- TODO: Make better guesstimate of covariance. -->
-        <!-- TODO: Extend radar to measure velocity as well? -->
             type : cartesian
-            cartesian : 0.3906*2
-            range : 300.0
-            bearing : 0.001611*1.5
+            cartesian : 5.5
+            range : 11.0
+            bearing : 0.000304
         </rosparam>
          <rosparam param="measurement_covariance_camera">
             type : cartesian
