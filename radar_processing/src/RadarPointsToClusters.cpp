@@ -77,10 +77,10 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     }
 
     // Transform the land-filtered cloud to our output frame.  
-    pcl_ros::transformPointCloud(filtered_ned_cloud, output_cloud, output_ned_tf)
+    pcl_ros::transformPointCloud(filtered_cloud, output_cloud, output_ned_tf)
 
     KdTree::Ptr tree{new KdTree};
-    tree->setInputCloud(filtered_cloud);
+    tree->setInputCloud(output_cloud);
     euclidean_clustering.setSearchMethod(tree);
     euclidean_clustering.setInputCloud(output_cloud);
 
