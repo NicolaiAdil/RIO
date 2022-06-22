@@ -335,7 +335,7 @@ if __name__ == "__main__":
     )
     lidar_scan_topic = rospy.get_param("~lidar_scan_topic", "lidar_centroids")
     rospy.Subscriber(
-        scan_topic,
+        lidar_scan_topic,
         automsg.RadarScan,
         callback=lidar_scan_callback,
         callback_args=(
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     )
     radar_scan_topic = rospy.get_param("~radar_scan_topic", "radar_centroids")
     rospy.Subscriber(
-        scan_topic,
+        radar_scan_topic,
         automsg.RadarScan,
         callback=radar_scan_callback,
         callback_args=(
