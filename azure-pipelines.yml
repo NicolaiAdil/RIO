@@ -4,17 +4,23 @@
 
 trigger:
 - summer/2022/main
+- main
 
 resources:
-- repo: self
+  repositories:
+  - repository: revoltmsgs
+    type: git
+    name: ReVolt/RevoltMsgs
+    trigger:
+      - main
 
 variables:
   # Container registry service connection established during pipeline creation
-  dockerRegistryServiceConnection: '2067d333-bca0-46f6-a1e1-510c73eef50d'
-  imageRepository: 'sensorfusion'
+  dockerRegistryServiceConnection: 'a629a3b8-7119-4fd2-bd21-5302ce2dd42d'
+  imageRepository: 'sensor-fusion'
   containerRegistry: 'grdrevolt.azurecr.io'
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
-  tag: '$(Build.BuildId)'
+  dockerfilePath: '$(Pipeline.Workspace)/SensorFusion/Dockerfile'
+  tag: 'main'
 
   # Agent VM image name
   vmImageName: 'ubuntu-latest'
@@ -28,10 +34,15 @@ stages:
     pool:
       vmImage: $(vmImageName)
     steps:
+    - checkout: self
+      path: ./SensorFusion
+    - checkout: revoltmsgs
+      path: ./RevoltMsgs
     - task: Docker@2
       displayName: Build and push an image to container registry
       inputs:
         command: buildAndPush
+        buildContext: $(Pipeline.Workspace)
         repository: $(imageRepository)
         dockerfile: $(dockerfilePath)
         containerRegistry: $(dockerRegistryServiceConnection)
