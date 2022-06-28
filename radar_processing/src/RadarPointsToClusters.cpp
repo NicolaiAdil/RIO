@@ -38,7 +38,7 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
   pcl_sub = nh.subscribe<PointCloud>(point_cloud_topic, 1,
                                      &PclClustering::pcl_cb, this);
   hulls_pub = nh.advertise<jsk_recognition_msgs::PolygonArray>(hulls_topic, 10);
-  scan_pub = nh.advertise<custom_msgs::RadarScan>(scan_topic, 10);
+  scan_pub = nh.advertise<autosea_msgs::RadarScan>(scan_topic, 10);
 
   double tolerance;
   int min_cluster_size, max_cluster_size;
@@ -54,12 +54,12 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
   ros::Time pc2Stamp = ros::Time::now();
   geometry_msgs::TransformStamped transformStamped;
-  tf::StampedTransform fixed_radar_tf;
-  tf::StampedTransform ned_radar_tf;
-  tf::StampedTransform fixed_ned_tf;
+  tf::StampedTransform fixed_input_tf;
+  tf::StampedTransform ned_input_tf;
+  tf::StampedTransform output_ned_tf;
   pcl::PointCloud<pcl::PointXYZ> ned_cloud;
-  pcl::PointCloud<plc::PointXYZ> filtered_cloud;
-  pcl::PointCloud<plc::PointXYZ> output_cloud;
+  pcl::PointCloud<pcl::PointXYZ> filtered_cloud;
+  pcl::PointCloud<pcl::PointXYZ> output_cloud;
 
 
   try{
@@ -69,20 +69,22 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     pListener->lookupTransform("ned", input_frame_id, pc2Stamp, ned_input_tf);
     pListener->lookupTransform(output_frame_id, "ned", pc2Stamp, output_ned_tf);
 
-    pcl_ros::transformPointCloud(cloud, ned_cloud, ned_radar_tf)
-    for (const auto& point: ned_cloud->points){
-      if landmap->isLand(point.x, point.y){
-        filtered_cloud->push_back(point);
+    pcl_ros::transformPointCloud(*cloud, ned_cloud, ned_input_tf);
+    for (const auto& point: ned_cloud.points){
+      if (landmap->isLand(point.x, point.y)){
+        filtered_cloud.push_back(point);
       }
     }
 
     // Transform the land-filtered cloud to our output frame.  
-    pcl_ros::transformPointCloud(filtered_cloud, output_cloud, output_ned_tf)
+    pcl_ros::transformPointCloud(filtered_cloud, output_cloud, output_ned_tf);
+
+    pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
 
     KdTree::Ptr tree{new KdTree};
-    tree->setInputCloud(output_cloud);
+    tree->setInputCloud(temp_cloud);
     euclidean_clustering.setSearchMethod(tree);
-    euclidean_clustering.setInputCloud(output_cloud);
+    euclidean_clustering.setInputCloud(temp_cloud);
 
     // Extract clusters from the filtered cloud in output frame and save their indices. 
     // cluster_indices[i] contains an array of each point in the original cloud that 
@@ -97,7 +99,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     common_header.frame_id = output_frame_id;
 
     jsk_recognition_msgs::PolygonArray hulls;
-    custom_msgs::RadarScan scan;
+    autosea_msgs::RadarScan scan;
     for (auto cit = cluster_indices.begin(); cit != cluster_indices.end();
         ++cit) {
 
@@ -105,7 +107,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
       for (const auto &idx :
           cit->indices) { // Fetch the points from the output cloud that
                           // correspond to the i'th cluster
-        cluster->push_back((*output_cloud)[idx]);
+        cluster->push_back((*temp_cloud)[idx]);
       }
 
       PointCloud hull;
@@ -115,10 +117,10 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
       single_polygon.header = common_header;
       hulls.polygons.push_back(single_polygon);
 
-      custom_msgs::RadarCluster cl;
+      autosea_msgs::RadarCluster cl;
       cl.header = common_header;
-      // cl.type = custom_msgs::RadarCluster::EXTENDED;
-      cl.type = custom_msgs::RadarCluster::POINT;
+      // cl.type = autosea_msgs::RadarCluster::EXTENDED;
+      cl.type = autosea_msgs::RadarCluster::POINT;
       geometry_msgs::Point centroid;
       cloud_to_centroid(cluster, centroid);
       cl.centroid = centroid;
@@ -135,7 +137,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     pub_seq++;
   }
   catch (tf::TransformException &ex){
-    ROS_WARN("%s", ex.what())
+    ROS_WARN("%s", ex.what());
   }
 }
 
