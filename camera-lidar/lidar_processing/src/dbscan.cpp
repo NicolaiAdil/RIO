@@ -1,5 +1,5 @@
-#include "dbscan.hpp"
-#include "nanoflann.hpp"
+#include "lidar_processing/dbscan.hpp"
+#include "lidar_processing/nanoflann.hpp"
 #include "pcl/point_types.h"
 #include "ros/ros.h"
 #include <boost/geometry.hpp>

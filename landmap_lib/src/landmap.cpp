@@ -1,4 +1,4 @@
-#include "landmap.h"
+#include "landmap_lib/landmap.h"
 #include "ros/package.h"
 #include "ros/ros.h"
 #include <algorithm>

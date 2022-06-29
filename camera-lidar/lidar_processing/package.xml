@@ -19,13 +19,16 @@
   <build_depend>tf2_geometry_msgs</build_depend>
   <build_depend>autosea_msgs</build_depend>
   <build_depend>message_generation</build_depend>
+  <build_depend>landmap_lib</build_depend>
   <exec_depend>message_runtime</exec_depend>
   <exec_depend>roscpp</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>autosea_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>pcl_conversions</exec_depend>
   <exec_depend>pcl_ros</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
+  <exec_depend>landmap_lib</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

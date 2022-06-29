@@ -11,9 +11,9 @@
 #include "tf/transform_listener.h"
 #include <cmath>
 
-#include "dbscan.hpp"
-#include "landmap.h"
-#include "nanoflann.hpp"
+#include "lidar_processing/dbscan.hpp"
+#include "landmap_lib/landmap.h"
+#include "lidar_processing/nanoflann.hpp"
 
 tf::TransformListener *pListener = NULL;
 

@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   tf2_geometry_msgs
   autosea_msgs
+  landmap_lib
 )
 
 
@@ -18,7 +19,7 @@ catkin_package(
   INCLUDE_DIRS include  
   LIBRARIES ${PROJECT_NAME}
   CATKIN_DEPENDS roscpp sensor_msgs tf2_ros pcl_conversions
-    pcl_ros tf2_geometry_msgs autosea_msgs
+    pcl_ros tf2_geometry_msgs autosea_msgs landmap_lib
 # DEPENDS system_lib
 )
 
@@ -47,7 +48,7 @@ add_library(${PROJECT_NAME}
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(LidarProcessor src/lidar_clustering.cpp src/landmap.cpp src/dbscan.cpp)
+add_executable(LidarProcessor src/lidar_clustering.cpp src/dbscan.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the

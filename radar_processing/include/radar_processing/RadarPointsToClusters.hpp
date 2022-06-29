@@ -11,7 +11,7 @@
 #include "pcl/point_types.h"
 #include "pcl_ros/transforms.h"
 #include <pcl_conversions/pcl_conversions.h>
-#include "landmap.h"
+#include "landmap_lib/landmap.h"
 
 #include "autosea_msgs/RadarCluster.h"
 #include "autosea_msgs/RadarScan.h"
