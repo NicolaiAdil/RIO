@@ -3,12 +3,13 @@ project(landmap_lib)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  roslib
 )
 
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS roscpp 
+  CATKIN_DEPENDS roscpp roslib
 #  DEPENDS other non-ROS libs
 )
 

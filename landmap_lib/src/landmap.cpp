@@ -1,9 +1,4 @@
 #include "landmap_lib/landmap.h"
-#include "ros/package.h"
-#include "ros/ros.h"
-#include <algorithm>
-#include <cmath>
-#include <fstream>
 
 #define Deg2Rad M_PI / 180.0
 
@@ -77,9 +72,10 @@ std::vector<std::vector<std::string>> readCSV(std::istream &in) {
 std::vector<indexedPolygonPoint_t> getPolygonPoints(const double &refLatDeg,
                                                     const double &refLonDeg) {
   std::ifstream myFile;
-  std::string pkg_path = ros::package::getPath("lidar_processing");
-  pkg_path = pkg_path + "/src/tempNodes.csv";
-  myFile.open(pkg_path.c_str());
+  std::string pkg_name; 
+  std::string pkg_path = ros::package::getPath(pkg_name);
+  std::string csv_path = pkg_path + "/src/tempNodes.csv";
+  myFile.open(csv_path.c_str());
   std::vector<std::vector<std::string>> stringTable = readCSV(myFile);
 
   double refLat = refLatDeg * Deg2Rad;

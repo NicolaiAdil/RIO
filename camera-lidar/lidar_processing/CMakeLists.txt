@@ -36,9 +36,9 @@ include_directories(
 )
 
 ## Declare a C++ library
-add_library(${PROJECT_NAME}
-  src/landmap.cpp
-)
+# add_library(${PROJECT_NAME}
+#   src/landmap.cpp
+# )
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -65,7 +65,7 @@ add_dependencies(LidarProcessor autosea_msgs_generate_messages_cpp)
 target_link_libraries(LidarProcessor ${catkin_LIBRARIES})
 
 install(
-  TARGETS ${PROJECT_NAME}
+  TARGETS LidarProcessor
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}

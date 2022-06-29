@@ -1,4 +1,9 @@
 #include <bitset>
+#include "ros/ros.h"
+#include "ros/package.h"
+#include <algorithm>
+#include <cmath>
+#include <fstream>
 
 class Landmap {
     public:
