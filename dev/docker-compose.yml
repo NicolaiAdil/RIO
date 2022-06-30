@@ -1,0 +1,45 @@
+version: '3.0'
+services:
+
+  sensor-fusion-win:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.dev
+    platform: linux
+    container_name: dev-sensor-fusion
+    privileged: true
+    volumes:
+      - "../:/home/revolt/src"
+      - "../../RevoltMsgs:/home/revolt/src/msgs"
+      - "../../DigitalTwin/Gemini/gemini_ros:/revolt_ws/src/gemini_ros"
+      - /dev:/dev
+    stdin_open: true
+    tty: true
+    environment: 
+      DISPLAY: host.docker.internal:0.0
+    ports:
+      - 21000:21000
+      - 21001:21001
+      - 21002:21002
+      - 11311:11311
+      - 5000:5000
+      - 8080:8080
+
+  sensor-fusion:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.dev
+    platform: linux
+    container_name: dev-sensor-fusion
+    privileged: true
+    volumes:
+      - "../:/sensor_fusion_ws/src"
+      - "../../RevoltMsgs:/sensor_fusion_ws/src/msgs"
+      - "../../DigitalTwin/Gemini/gemini_ros:/sensor_fusion_ws/src/gemini_ros"
+      - /dev:/dev
+    stdin_open: true
+    tty: true
+    environment: 
+      DISPLAY: :0 # Allow for launching Rviz and RQT from container
+    network_mode: host
+
