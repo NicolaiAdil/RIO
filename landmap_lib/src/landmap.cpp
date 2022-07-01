@@ -72,7 +72,7 @@ std::vector<std::vector<std::string>> readCSV(std::istream &in) {
 std::vector<indexedPolygonPoint_t> getPolygonPoints(const double &refLatDeg,
                                                     const double &refLonDeg) {
   std::ifstream myFile;
-  std::string pkg_name; 
+  std::string pkg_name = "landmap_lib";
   std::string pkg_path = ros::package::getPath(pkg_name);
   std::string csv_path = pkg_path + "/src/tempNodes.csv";
   myFile.open(csv_path.c_str());
