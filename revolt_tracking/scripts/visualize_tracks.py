@@ -6,7 +6,7 @@ import geometry_msgs.msg as geomsg
 from visualization_msgs.msg import Marker
 from autosea_msgs.msg import RadarEstimate
 from collections import deque
-import autosealib.conversion as autoconv
+import autoseapy_tracking.conversion as autoconv
 
 identity_quat = geomsg.Quaternion(0, 0, 0, 1)
 identity_pos = geomsg.Point(0, 0, 0)
