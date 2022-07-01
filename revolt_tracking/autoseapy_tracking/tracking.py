@@ -4,7 +4,6 @@ from scipy.stats import chi2
 from scipy.linalg import block_diag
 import itertools
 import copy
-import ipdb
 
 import tf2_ros
 import rospy
@@ -203,8 +202,6 @@ class PDAFTracker(object):
             + (1 - association_probabilities[-1]) * P_c
             + soi
         )
-        if np.any(np.linalg.eig(estimate.cov_posterior)[0] < 0):
-            ipdb.set_trace()
 
     def update_estimate(self, estimate):
         n_measurements = len(estimate.measurements)
