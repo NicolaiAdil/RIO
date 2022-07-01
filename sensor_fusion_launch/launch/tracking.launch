@@ -12,13 +12,14 @@
     </node>-->
 
     <!-- Realtime validation node --> 
-    <node pkg="realtime_validation" name="realtime_validator" ns="realtime_validator" type="realtime_validator.py" output="screen"/>
+    <!-- <node pkg="realtime_validation" name="realtime_validator" ns="realtime_validator" type="realtime_validator.py" output="screen"/> -->
 
     <!--LiDAR clustering and frame transformer -->
 	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
 
     <!--RADAR clustering and frame transformer -->
-	<node name="radarprocessor" pkg="radar_processing" type="RadarProcessor" respawn="true" output="screen"/>
+	<node name="radarspokestopoints" pkg="radar_processing" type="RadarSpokesToPointsNode" respawn="true" output="screen"/>
+	<node name="radarpointstoclusters" pkg="radar_processing" type="RadarPointsToClustersNode" respawn="true" output="screen"/>
 
     <!-- Rectification and projection node
     <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
