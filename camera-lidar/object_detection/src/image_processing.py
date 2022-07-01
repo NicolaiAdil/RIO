@@ -83,13 +83,15 @@ class image_proscessing(object):
 
         h, w = cv_image.shape[:2]
 
-        newcamera_mtx, roi = cv.getOptimalNewCameraMatrix(
-            self.matrixDict.get(ros_image_msg.header.frame_id),
-            self.distort,
-            (w, h),
-            1,
-            (w, h),
-        )
+        # TODO: These variables are unused and crash the program due to sizes (when running with sim)
+        # Fix and comment back in if thes are needed at a later date
+        # newcamera_mtx, roi = cv.getOptimalNewCameraMatrix(
+        #     self.matrixDict.get(ros_image_msg.header.frame_id),
+        #     self.distort,
+        #     (w, h),
+        #     1,
+        #     (w, h),
+        # )
 
         dst = cv.undistort(cv_image, self.mtx, self.distort, None, None)
         self.height, self.width = dst.shape[:2]
