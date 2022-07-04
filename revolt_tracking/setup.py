@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="autoseapy_tracking",
-    version="0.1",
+    version="0.1.0",
     description="Tracking packages from the Autosea project",
     author="Autosea",
     author_email="andreas.flaten@ntnu.no",
