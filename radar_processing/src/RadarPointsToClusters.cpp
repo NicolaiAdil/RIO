@@ -74,67 +74,68 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
 
     // Transform the land-filtered cloud to our output frame.  
     pcl_ros::transformPointCloud(output_frame_id, filtered_cloud, output_cloud, buffer);
-
-    pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
-
-    KdTree::Ptr tree{new KdTree};
-    tree->setInputCloud(temp_cloud);
-    euclidean_clustering.setSearchMethod(tree);
-    euclidean_clustering.setInputCloud(temp_cloud);
-
-    // Extract clusters from the filtered cloud in output frame and save their indices. 
-    // cluster_indices[i] contains an array of each point in the original cloud that 
-    // correspond to the i'th cluster.
-
-    std::vector<pcl::PointIndices> cluster_indices;
-    euclidean_clustering.extract(cluster_indices);
-
-    std_msgs::Header common_header;
-    common_header.seq = pub_seq;
-    common_header.stamp = ros::Time::now();
-    common_header.frame_id = output_frame_id;
-
-    jsk_recognition_msgs::PolygonArray hulls;
-    autosea_msgs::RadarScan scan;
-    for (auto cit = cluster_indices.begin(); cit != cluster_indices.end();
-        ++cit) {
-
-      PointCloud::Ptr cluster{new PointCloud};
-      for (const auto &idx :
-          cit->indices) { // Fetch the points from the output cloud that
-                          // correspond to the i'th cluster
-        cluster->push_back((*temp_cloud)[idx]);
-      }
-
-      PointCloud hull;
-      cloud_to_hull(cluster, hull);
-      geometry_msgs::PolygonStamped single_polygon;
-      pcl_hull_to_polygon(hull, single_polygon);
-      single_polygon.header = common_header;
-      hulls.polygons.push_back(single_polygon);
-
-      autosea_msgs::RadarCluster cl;
-      cl.header = common_header;
-      // cl.type = autosea_msgs::RadarCluster::EXTENDED;
-      cl.type = autosea_msgs::RadarCluster::POINT;
-      geometry_msgs::Point centroid;
-      cloud_to_centroid(cluster, centroid);
-      cl.centroid = centroid;
-      cl.n_points = 1;
-      // cl.hull = single_polygon.polygon;
-      scan.radar_scan.push_back(cl);
-    }
-
-    hulls.header = common_header;
-    hulls_pub.publish(hulls);
-
-    scan_pub.publish(scan);
-
-    pub_seq++;
   }
   catch (tf2::TransformException &ex){
     ROS_WARN("%s", ex.what());
+    return;
   }
+
+  pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
+
+  KdTree::Ptr tree{new KdTree};
+  tree->setInputCloud(temp_cloud);
+  euclidean_clustering.setSearchMethod(tree);
+  euclidean_clustering.setInputCloud(temp_cloud);
+
+  // Extract clusters from the filtered cloud in output frame and save their indices. 
+  // cluster_indices[i] contains an array of each point in the original cloud that 
+  // correspond to the i'th cluster.
+
+  std::vector<pcl::PointIndices> cluster_indices;
+  euclidean_clustering.extract(cluster_indices);
+
+  std_msgs::Header common_header;
+  common_header.seq = pub_seq;
+  common_header.stamp = ros::Time::now();
+  common_header.frame_id = output_frame_id;
+
+  jsk_recognition_msgs::PolygonArray hulls;
+  autosea_msgs::RadarScan scan;
+  for (auto cit = cluster_indices.begin(); cit != cluster_indices.end();
+      ++cit) {
+
+    PointCloud::Ptr cluster{new PointCloud};
+    for (const auto &idx :
+        cit->indices) { // Fetch the points from the output cloud that
+                        // correspond to the i'th cluster
+      cluster->push_back((*temp_cloud)[idx]);
+    }
+
+    PointCloud hull;
+    cloud_to_hull(cluster, hull);
+    geometry_msgs::PolygonStamped single_polygon;
+    pcl_hull_to_polygon(hull, single_polygon);
+    single_polygon.header = common_header;
+    hulls.polygons.push_back(single_polygon);
+
+    autosea_msgs::RadarCluster cl;
+    cl.header = common_header;
+    // cl.type = autosea_msgs::RadarCluster::EXTENDED;
+    cl.type = autosea_msgs::RadarCluster::POINT;
+    geometry_msgs::Point centroid;
+    cloud_to_centroid(cluster, centroid);
+    cl.centroid = centroid;
+    cl.n_points = 1;
+    // cl.hull = single_polygon.polygon;
+    scan.radar_scan.push_back(cl);
+  }
+
+  hulls.header = common_header;
+  hulls_pub.publish(hulls);
+
+  scan_pub.publish(scan);
+
+  pub_seq++;
 }
 
 void PclClustering::cloud_to_hull(const PointCloud::Ptr input_cloud,
