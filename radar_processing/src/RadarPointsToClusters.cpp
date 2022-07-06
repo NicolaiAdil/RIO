@@ -66,10 +66,11 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     const std::string target_frame = "ned";
     pcl_ros::transformPointCloud(target_frame, *cloud, ned_cloud, buffer);
     for (const auto& point: ned_cloud.points){
-      if (landmap->isLand(point.x, point.y)){
+      if (!landmap->isLand(point.x, point.y)){
         filtered_cloud.push_back(point);
       }
     }
+    filtered_cloud.header.frame_id = "ned";
 
     // Transform the land-filtered cloud to our output frame.  
     pcl_ros::transformPointCloud(output_frame_id, filtered_cloud, output_cloud, buffer);
