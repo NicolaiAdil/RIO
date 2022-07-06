@@ -7,7 +7,6 @@
 #include <cmath>
 #include <ros/ros.h>
 #include <string>
-#include <tf/transform_listener.h>
 #include <vector>
 
 #include <custom_msgs/RadarPoints.h>
@@ -35,8 +34,8 @@ void RadarPointBuffer::add_buffer(const RadarPointBuffer &buffer) {
 }
 
 SpokesToPoints::SpokesToPoints(ros::NodeHandle &nh_in)
-    : nh(nh_in), rgb_cloud{new pcl::PointCloud<pcl::PointXYZRGB>} {
-
+    : nh(nh_in), rgb_cloud{new pcl::PointCloud<pcl::PointXYZRGB>}, tf_listener(buffer) {
+  
   if (!nh.getParam("/sensors/radar/frames/input", projection_frame_id)) {
     projection_frame_id = "radar";
     ROS_WARN_STREAM("No input frame specified for radar, using "
@@ -122,20 +121,22 @@ void SpokesToPoints::spoke_callback(
 void SpokesToPoints::project_points(
     const custom_msgs::RadarSpoke::ConstPtr &spoke_ptr,
     RadarPointBuffer *point_buffer) {
-  tf::StampedTransform transform;
+  geometry_msgs::TransformStamped transform;
+  tf2::Stamped<tf2::Transform> transf2;
   if (transform_data) {
     try {
-      tf_listener.waitForTransform(output_frame_id, projection_frame_id,
+      buffer.canTransform(output_frame_id, projection_frame_id,
                                    spoke_ptr->header.stamp,
                                    ros::Duration(0.05));
-      tf_listener.lookupTransform(output_frame_id, projection_frame_id,
-                                  spoke_ptr->header.stamp, transform);
-    } catch (tf::TransformException e) {
+      transform = buffer.lookupTransform(output_frame_id, projection_frame_id,
+                                  spoke_ptr->header.stamp);
+    } catch (tf2::TransformException e) {
       ROS_WARN_STREAM_THROTTLE(
           5.0, "Failed to lookup transform, discarding points. Exception: "
                    << e.what());
       return;
     }
+    tf2::convert(transform, transf2);
   }
 
   float azimuth = spoke_ptr->azimuth - bearing_offset;
@@ -152,7 +153,7 @@ void SpokesToPoints::project_points(
       geometry_msgs::Point32 point;
       radar_to_body(r, cos_az, sin_az, &point);
       if (transform_data) {
-        transform_point(transform, &point);
+        transform_point(transf2, &point);
       }
       point_buffer->add_point(point, point_intensity);
 
@@ -171,9 +172,9 @@ void SpokesToPoints::radar_to_body(const float &r, const float &cos_az,
   pt_out->z = 0.0;
 }
 
-void SpokesToPoints::transform_point(const tf::StampedTransform &transform,
+void SpokesToPoints::transform_point(const tf2::Stamped<tf2::Transform> &transform,
                                      geometry_msgs::Point32 *pt) {
-  tf::Vector3 tf_pt = transform(tf::Vector3(pt->x, pt->y, pt->z));
+  tf2::Vector3 tf_pt = transform(tf2::Vector3(pt->x, pt->y, pt->z));
   pt->x = tf_pt.getX();
   pt->y = tf_pt.getY();
   pt->z = tf_pt.getZ();

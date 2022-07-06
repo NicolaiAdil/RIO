@@ -7,7 +7,10 @@
 
 #include <ros/ros.h>
 #include <string>
-#include <tf/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <geometry_msgs/TransformStamped.h>
 #include <vector>
 
 #include <custom_msgs/RadarSpoke.h>
@@ -46,7 +49,7 @@ private:
                       RadarPointBuffer *point_buffer);
   void radar_to_body(const float &r, const float &cos_az, const float &sin_az,
                      geometry_msgs::Point32 *pt_out);
-  void transform_point(const tf::StampedTransform &transform,
+  void transform_point(const tf2::Stamped<tf2::Transform> &transform,
                        geometry_msgs::Point32 *pt);
   void rgb_point(const geometry_msgs::Point32 &pt_in, const uint8_t &intensity,
                  pcl::PointXYZRGB *pt_out);
@@ -74,7 +77,8 @@ private:
   ros::NodeHandle nh;
   ros::Publisher pcl_pub;
   ros::Subscriber spoke_sub;
-  tf::TransformListener tf_listener;
+  tf2_ros::Buffer buffer;
+  tf2_ros::TransformListener tf_listener;
   RadarPointBuffer scan_buffer;
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr rgb_cloud;
