@@ -40,10 +40,12 @@ SpokesToPoints::SpokesToPoints(ros::NodeHandle &nh_in)
     projection_frame_id = "radar";
     ROS_WARN_STREAM("No input frame specified for radar, using "
                     << projection_frame_id);
+  } else {
+    ROS_INFO_STREAM("Input frame set to: " << projection_frame_id);
   }
 
   if (!nh.getParam("/sensors/radar/frames/output", output_frame_id)) {
-    ROS_INFO_STREAM(
+    ROS_WARN_STREAM(
         "No output frame specified, points output in: " << projection_frame_id);
     output_frame_id = projection_frame_id;
   } else {
@@ -125,11 +127,8 @@ void SpokesToPoints::project_points(
   tf2::Stamped<tf2::Transform> transf2;
   if (transform_data) {
     try {
-      buffer.canTransform(output_frame_id, projection_frame_id,
-                                   spoke_ptr->header.stamp,
-                                   ros::Duration(0.05));
       transform = buffer.lookupTransform(output_frame_id, projection_frame_id,
-                                  spoke_ptr->header.stamp);
+                                spoke_ptr->header.stamp, ros::Duration(0.05));
     } catch (tf2::TransformException e) {
       ROS_WARN_STREAM_THROTTLE(
           5.0, "Failed to lookup transform, discarding points. Exception: "
