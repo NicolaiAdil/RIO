@@ -18,8 +18,8 @@
 	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
 
     <!--RADAR clustering and frame transformer -->
-	<node name="radarspokestopoints" pkg="radar_processing" type="RadarSpokesToPointsNode" respawn="true" output="screen"/>
-	<node name="radarpointstoclusters" pkg="radar_processing" type="RadarPointsToClustersNode" respawn="true" output="screen"/>
+	<include file="$(find radar_processing)/launch/radar_processing.launch" />
+
 
     <!-- Rectification and projection node
     <node pkg="object_detection" name="image_processing" ns="Image_processing" type="image_processing.py" output="screen">
