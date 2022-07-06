@@ -42,11 +42,6 @@ void velodyne_points_cb(
 
   // Change Timestamp to gps-time during normal run
   ros::Time pc2Stamp = ros::Time::now();
-  geometry_msgs::TransformStamped transformStamped;
-  geometry_msgs::TransformStamped transform;
-  geometry_msgs::TransformStamped transform2;
-  geometry_msgs::TransformStamped fixed_ned_transform;
-  geometry_msgs::TransformStamped test_transform;
   pcl::PointCloud<pcl::PointXYZI> fixed_cloud;
   pcl::PointCloud<pcl::PointXYZI> ned_cloud;
   pcl::PointCloud<pcl::PointXYZI> init_cloud;
@@ -62,10 +57,6 @@ void velodyne_points_cb(
   try {
     buffer.canTransform("fixed", "lidar", pc2Stamp, ros::Duration(1.0));
     tnow = ros::Time::now().toSec();
-    transform = buffer.lookupTransform("fixed", "lidar", pc2Stamp);
-    transform2 = buffer.lookupTransform("ned", "lidar", pc2Stamp);
-    fixed_ned_transform = buffer.lookupTransform("fixed", "ned", pc2Stamp);
-    test_transform = buffer.lookupTransform("body", "body", pc2Stamp);
 
     double tlookup = ros::Time::now().toSec();
     pcl_ros::transformPointCloud("fixed", *input, fixed_cloud, buffer);
