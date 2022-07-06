@@ -1,6 +1,7 @@
 #include "radar_processing/RadarPointsToClusters.hpp"
 
-tf::TransformListener *pListener = NULL;
+tf2_ros::Buffer buffer; 
+tf2_ros::TransformListener *pListener = NULL;
 Landmap *landmap = NULL;
 pcl::PointCloud<pcl::PointXYZ> *land_cloud = NULL;
 
@@ -53,10 +54,6 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 
 void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
   ros::Time pc2Stamp = ros::Time::now();
-  geometry_msgs::TransformStamped transformStamped;
-  tf::StampedTransform fixed_input_tf;
-  tf::StampedTransform ned_input_tf;
-  tf::StampedTransform output_ned_tf;
   pcl::PointCloud<pcl::PointXYZ> ned_cloud;
   pcl::PointCloud<pcl::PointXYZ> filtered_cloud;
   pcl::PointCloud<pcl::PointXYZ> output_cloud;
@@ -64,12 +61,10 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
 
   try{
 
-    pListener->waitForTransform("fixed", input_frame_id, pc2Stamp, ros::Duration(1.0));
-    pListener->lookupTransform("fixed", input_frame_id, pc2Stamp, fixed_input_tf);
-    pListener->lookupTransform("ned", input_frame_id, pc2Stamp, ned_input_tf);
-    pListener->lookupTransform(output_frame_id, "ned", pc2Stamp, output_ned_tf);
+    buffer.canTransform("fixed", input_frame_id, pc2Stamp, ros::Duration(1.0));
 
-    pcl_ros::transformPointCloud(*cloud, ned_cloud, ned_input_tf);
+    const std::string target_frame = "ned";
+    pcl_ros::transformPointCloud(target_frame, *cloud, ned_cloud, buffer);
     for (const auto& point: ned_cloud.points){
       if (landmap->isLand(point.x, point.y)){
         filtered_cloud.push_back(point);
@@ -77,7 +72,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     }
 
     // Transform the land-filtered cloud to our output frame.  
-    pcl_ros::transformPointCloud(filtered_cloud, output_cloud, output_ned_tf);
+    pcl_ros::transformPointCloud(output_frame_id, filtered_cloud, output_cloud, buffer);
 
     pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
 
@@ -136,7 +131,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
 
     pub_seq++;
   }
-  catch (tf::TransformException &ex){
+  catch (tf2::TransformException &ex){
     ROS_WARN("%s", ex.what());
   }
 }
@@ -194,7 +189,7 @@ int main(int argc, char **argv) {
   nh.getParam(world_frame + "/lat0", refLat);
   nh.getParam(world_frame + "/lon0", refLon);
 
-  pListener = new tf::TransformListener(ros::Duration(3.0));
+  pListener = new tf2_ros::TransformListener(buffer);
   landmap->initialize(refLat, refLon);
   ros::spin();
   return 0;
