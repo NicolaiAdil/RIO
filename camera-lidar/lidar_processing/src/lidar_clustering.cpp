@@ -8,14 +8,16 @@
 #include "pcl_ros/transforms.h"
 #include "sensor_msgs/PointCloud2.h"
 #include <pcl_conversions/pcl_conversions.h>
-#include "tf/transform_listener.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
 #include <cmath>
 
 #include "lidar_processing/dbscan.hpp"
 #include "landmap_lib/landmap.h"
 #include "lidar_processing/nanoflann.hpp"
 
-tf::TransformListener *pListener = NULL;
+tf2_ros::Buffer buffer;
+tf2_ros::TransformListener *pListener = NULL;
 
 ros::Publisher pub;
 ros::Publisher pubtest;
@@ -41,10 +43,10 @@ void velodyne_points_cb(
   // Change Timestamp to gps-time during normal run
   ros::Time pc2Stamp = ros::Time::now();
   geometry_msgs::TransformStamped transformStamped;
-  tf::StampedTransform transform;
-  tf::StampedTransform transform2;
-  tf::StampedTransform fixed_ned_transform;
-  tf::StampedTransform test_transform;
+  geometry_msgs::TransformStamped transform;
+  geometry_msgs::TransformStamped transform2;
+  geometry_msgs::TransformStamped fixed_ned_transform;
+  geometry_msgs::TransformStamped test_transform;
   pcl::PointCloud<pcl::PointXYZI> fixed_cloud;
   pcl::PointCloud<pcl::PointXYZI> ned_cloud;
   pcl::PointCloud<pcl::PointXYZI> init_cloud;
@@ -58,15 +60,15 @@ void velodyne_points_cb(
   double tnow;
 
   try {
-    pListener->waitForTransform("fixed", "lidar", pc2Stamp, ros::Duration(1.0));
+    buffer.canTransform("fixed", "lidar", pc2Stamp, ros::Duration(1.0));
     tnow = ros::Time::now().toSec();
-    pListener->lookupTransform("fixed", "lidar", pc2Stamp, transform);
-    pListener->lookupTransform("ned", "lidar", pc2Stamp, transform2);
-    pListener->lookupTransform("fixed", "ned", pc2Stamp, fixed_ned_transform);
-    pListener->lookupTransform("body", "body", pc2Stamp, test_transform);
+    transform = buffer.lookupTransform("fixed", "lidar", pc2Stamp);
+    transform2 = buffer.lookupTransform("ned", "lidar", pc2Stamp);
+    fixed_ned_transform = buffer.lookupTransform("fixed", "ned", pc2Stamp);
+    test_transform = buffer.lookupTransform("body", "body", pc2Stamp);
 
     double tlookup = ros::Time::now().toSec();
-    pcl_ros::transformPointCloud(*input, fixed_cloud, transform);
+    pcl_ros::transformPointCloud("fixed", *input, fixed_cloud, buffer);
     fixed_cloud.header.frame_id = "fixed";
     fixed_cloud.header.stamp = input->header.stamp;
     fixed_cloud.header.seq = input->header.seq;
@@ -80,11 +82,11 @@ void velodyne_points_cb(
     lidar_pt.height = 1;
     lidar_pt.width = 1;
     lidar_pt.points.emplace_back(pcl::PointXYZ(0.0, 0.0, 0.0));
-    pcl_ros::transformPointCloud(lidar_pt, lidar_ned_pt, transform2);
+    pcl_ros::transformPointCloud("ned", lidar_pt, lidar_ned_pt, buffer);
     float lidar_n = lidar_ned_pt.points[0].x;
     float lidar_e = lidar_ned_pt.points[0].y;
 
-    pcl_ros::transformPointCloud(*input, ned_cloud, transform2);
+    pcl_ros::transformPointCloud("ned", *input, ned_cloud, buffer);
     ned_cloud.header.frame_id = "ned";
     ned_cloud.header.stamp = input->header.stamp;
     ned_cloud.header.seq = input->header.seq;
@@ -132,8 +134,7 @@ void velodyne_points_cb(
     }
     scanpub.publish(scanMsg);
 
-    pcl_ros::transformPointCloud(centroids, centroids_fixed,
-                                 fixed_ned_transform);
+    pcl_ros::transformPointCloud("fixed", centroids, centroids_fixed, buffer);
     centroids_fixed.header.frame_id = "fixed";
     centroids_fixed.header.stamp = input->header.stamp;
     centroids_fixed.header.seq = input->header.seq;
@@ -152,11 +153,10 @@ void velodyne_points_cb(
         filtered_cloud.width += 1;
       }
     }
-    pcl_ros::transformPointCloud(filtered_cloud, fixed_filtered_cloud,
-                                 fixed_ned_transform);
+    pcl_ros::transformPointCloud("fixed", filtered_cloud, fixed_filtered_cloud, buffer);
     pubfiltered.publish(fixed_filtered_cloud);
 
-  } catch (tf::TransformException &ex) {
+  } catch (tf2::TransformException &ex) {
     ROS_WARN("%s", ex.what());
   }
   pubtest.publish(*land_cloud);
@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
   pubtrans2 = nh.advertise<pcl::PointCloud<pcl::PointXYZI>>("trans_cloud2", 1);
   pubcentroids =
       nh.advertise<pcl::PointCloud<pcl::PointXYZ>>("centroid_cloud", 1);
-  pListener = new tf::TransformListener(ros::Duration(3.0));
+  pListener = new tf2_ros::TransformListener(buffer);
   ros::Subscriber sub = nh.subscribe<pcl::PointCloud<pcl::PointXYZI>>(
       "velodyne_points", 10, velodyne_points_cb);
   ros::spin();
