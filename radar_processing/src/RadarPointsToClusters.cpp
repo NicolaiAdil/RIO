@@ -81,7 +81,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
   }
 
   pcl::PointCloud<pcl::PointXYZ>::ConstPtr output_cloud_ptr = output_cloud.makeShared();
-  if (temp_cloud->empty()){
+  if (output_cloud_ptr->empty()){
     ROS_WARN_STREAM("No cloud to cluster in RadarPointsToCluster");
     return;
   }
