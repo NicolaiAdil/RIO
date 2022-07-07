@@ -80,7 +80,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     return;
   }
 
-  pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
+  pcl::PointCloud<pcl::PointXYZ>::ConstPtr output_cloud_ptr = output_cloud.makeShared();
   if (temp_cloud->empty()){
     ROS_WARN_STREAM("No cloud to cluster in RadarPointsToCluster");
     return;
@@ -88,9 +88,9 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     
 
   KdTree::Ptr tree{new KdTree};
-  tree->setInputCloud(temp_cloud);
+  tree->setInputCloud(output_cloud_ptr);
   euclidean_clustering.setSearchMethod(tree);
-  euclidean_clustering.setInputCloud(temp_cloud);
+  euclidean_clustering.setInputCloud(output_cloud_ptr);
 
   // Extract clusters from the filtered cloud in output frame and save their indices. 
   // cluster_indices[i] contains an array of each point in the original cloud that 
@@ -113,7 +113,7 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     for (const auto &idx :
         cit->indices) { // Fetch the points from the output cloud that
                         // correspond to the i'th cluster
-      cluster->push_back((*temp_cloud)[idx]);
+      cluster->push_back((output_cloud)[idx]);
     }
 
     PointCloud hull;
