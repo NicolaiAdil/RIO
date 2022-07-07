@@ -81,6 +81,11 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
   }
 
   pcl::PointCloud<pcl::PointXYZ>::ConstPtr temp_cloud (&output_cloud);
+  if (temp_cloud->empty()){
+    ROS_WARN_STREAM("No cloud to cluster in RadarPointsToCluster");
+    return;
+  }
+    
 
   KdTree::Ptr tree{new KdTree};
   tree->setInputCloud(temp_cloud);
