@@ -95,7 +95,7 @@ def lidar_scan_callback(msg, args):
     pdaf_tracker.set_measurement_type("lidar")
     current_position = ownship_position(ownship_tf)
     manager.tracking_method.measurement_model.update_ownship(current_position)
-    for cluster in msg.lidar_scan:
+    for cluster in msg.radar_scan:
         value = np.array([cluster.centroid.x, cluster.centroid.y])
         if np.linalg.norm(value) == np.inf:
             rospy.logwarn("Cluster centroid at infinity; discarding measurement")
