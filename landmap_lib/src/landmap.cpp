@@ -167,9 +167,6 @@ int getBitPos(int n_int, int e_int) {
   if (e_int < 0 || e_int > int(2*MAXRANGE*DPM-1)) {
     return -1;
   }
-  if (n_int * int(2*MAXRANGE*DPM) + e_int > 16000000){
-    ROS_INFO_STREAM(n_int * int(2*MAXRANGE*DPM) + e_int);
-  }
   return n_int * int(2*MAXRANGE*DPM) + e_int;
 }
 
