@@ -24,4 +24,4 @@ class Landmap {
     private:
         std::bitset<MAPSIZE> map;
 };
-#endif LANDMAP_H
+#endif //LANDMAP_H
