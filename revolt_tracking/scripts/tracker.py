@@ -120,6 +120,12 @@ def lidar_scan_callback(msg, args):
     # process and update lists
     plt.show(block=True)
 
+    if not msg.radar_scan:
+        mutex.release()
+        rospy.logwarn("No cluster in lidar_scan")
+        # ----- End mutex and return early if no clusters -----
+        return
+    
     estimates, new_tracks = manager.step(current_measurements, timestamp)
 
     # ----- End mutex ------
@@ -166,6 +172,12 @@ def radar_scan_callback(msg, args):
         current_measurements.add(z)
     # process and update lists
     plt.show(block=True)
+
+    if not msg.radar_scan:
+        mutex.release()
+        rospy.logwarn("No cluster in radar_scan")
+        # ----- End mutex and return early if no clusters -----
+        return
 
     estimates, new_tracks = manager.step(current_measurements, timestamp)
 
