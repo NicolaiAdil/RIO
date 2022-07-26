@@ -15,7 +15,7 @@
     <!-- <node pkg="realtime_validation" name="realtime_validator" ns="realtime_validator" type="realtime_validator.py" output="screen"/> -->
 
     <!--LiDAR clustering and frame transformer -->
-	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="true" output="screen"/>
+	<node name="lidarprocessor" pkg="lidar_processing" type="LidarProcessor" respawn="false" output="screen"/>
 
     <!--RADAR clustering and frame transformer -->
 	<include file="$(find radar_processing)/launch/radar_processing.launch" />
