@@ -73,7 +73,7 @@ std::vector<indexedPolygonPoint_t> getPolygonPoints(const double &refLatDeg,
   std::ifstream myFile;
   std::string pkg_name = "landmap_lib";
   std::string pkg_path = ros::package::getPath(pkg_name);
-  std::string csv_path = pkg_path + "/src/tempNodes.csv";
+  std::string csv_path = pkg_path + "/maps/tempNodes.csv";
   myFile.open(csv_path.c_str());
   std::vector<std::vector<std::string>> stringTable = readCSV(myFile);
 
