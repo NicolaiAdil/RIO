@@ -11,7 +11,7 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 
   std::string point_cloud_topic, hulls_topic, scan_topic;
   nh.param<std::string>("/topics/hardware/furuno_radar/point_cloud",
-                        point_cloud_topic, "/radar/points");
+                        point_cloud_topic, "/radar/pcl");
   nh.param<std::string>("/topics/hardware/furuno_radar/hulls", hulls_topic,
                         "/radar/hulls");
   nh.param<std::string>("/topics/hardware/furuno_radar/scan", scan_topic,
