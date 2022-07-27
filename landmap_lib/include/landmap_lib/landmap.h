@@ -1,14 +1,16 @@
 #ifndef LANDMAP_H
 #define LANDMAP_H
-#define MAXRANGE 1000.0
-#define DPM 2
-#define MAPSIZE (int(2*2*MAXRANGE*MAXRANGE*DPM*DPM))
+
 #include <bitset>
 #include "ros/ros.h"
 #include "ros/package.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+
+#define MAXRANGE 1000.0
+#define DPM 2
+#define MAPSIZE (int(2*2*MAXRANGE*MAXRANGE*DPM*DPM))
 
 // The following block uses global variables in header file which is ugly
 // May be useful if the #define macros fucks something up
