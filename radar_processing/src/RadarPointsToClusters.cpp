@@ -1,20 +1,45 @@
 #include "radar_processing/RadarPointsToClusters.hpp"
 
+tf2_ros::Buffer buffer; 
+tf2_ros::TransformListener *pListener = NULL;
+Landmap *landmap = NULL;
+pcl::PointCloud<pcl::PointXYZ> *land_cloud = NULL;
+
 PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
+  // Change Timestamp to gps-time during normal run // Not documented how to :( 
+  ros::Time pc2Stamp = ros::Time::now();
+
   std::string point_cloud_topic, hulls_topic, scan_topic;
   nh.param<std::string>("/topics/hardware/furuno_radar/point_cloud",
-                        point_cloud_topic, "/radar/points");
+                        point_cloud_topic, "/radar/pcl");
   nh.param<std::string>("/topics/hardware/furuno_radar/hulls", hulls_topic,
                         "/radar/hulls");
   nh.param<std::string>("/topics/hardware/furuno_radar/scan", scan_topic,
                         "/radar/scan");
 
+  if (!nh.getParam("/sensors/radar/frames/output", input_frame_id)) {
+    input_frame_id = "radar"; // NOTE: This is the OUTPUT from the 
+                              // spokes_to_points node, which is our INPUT
+    ROS_WARN_STREAM(
+        "No input frame specified, points input in: " << input_frame_id);
+    input_frame_id = input_frame_id;
+  } else {
+    ROS_INFO_STREAM("Input frame set to: " << input_frame_id);
+  }
+  
+  if (!nh.getParam("/sensors/radar/frames/output", output_frame_id)) {
+    output_frame_id = "body";
+    ROS_WARN_STREAM(
+        "No cluster output frame specified, points input in: " << output_frame_id);
+  } else {
+    ROS_INFO_STREAM("Cluster output frame set to: " << output_frame_id);
+  }
+
+
   pcl_sub = nh.subscribe<PointCloud>(point_cloud_topic, 1,
                                      &PclClustering::pcl_cb, this);
   hulls_pub = nh.advertise<jsk_recognition_msgs::PolygonArray>(hulls_topic, 10);
-  scan_pub = nh.advertise<custom_msgs::RadarScan>(scan_topic, 10);
-
-  nh.param<std::string>("/sensors/radar/frames/output", output_frame, "body");
+  scan_pub = nh.advertise<autosea_msgs::RadarScan>(scan_topic, 10);
 
   double tolerance;
   int min_cluster_size, max_cluster_size;
@@ -28,32 +53,67 @@ PclClustering::PclClustering(ros::NodeHandle nh_in) : nh{nh_in}, pub_seq{0} {
 }
 
 void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
-  KdTree::Ptr tree{new KdTree};
-  tree->setInputCloud(cloud);
-  euclidean_clustering.setSearchMethod(tree);
-  euclidean_clustering.setInputCloud(cloud);
+  ros::Time pc2Stamp = ros::Time::now();
+  pcl::PointCloud<pcl::PointXYZ> ned_cloud;
+  pcl::PointCloud<pcl::PointXYZ> filtered_cloud;
+  pcl::PointCloud<pcl::PointXYZ> output_cloud;
 
-  // Extract clusters from the cloud and save their indices. cluster_indices[i]
-  // contains an array of each point in the original cloud that correspond to
-  // the i'th cluster.
+
+  try{
+
+    buffer.canTransform("fixed", input_frame_id, pc2Stamp, ros::Duration(1.0));
+
+    const std::string target_frame = "ned";
+    pcl_ros::transformPointCloud(target_frame, *cloud, ned_cloud, buffer);
+    for (const auto& point: ned_cloud.points){
+      if (!landmap->isLand(point.x, point.y)){
+        filtered_cloud.push_back(point);
+      }
+    }
+    filtered_cloud.header.frame_id = "ned";
+
+    // Transform the land-filtered cloud to our output frame.  
+    pcl_ros::transformPointCloud(output_frame_id, filtered_cloud, output_cloud, buffer);
+  }
+  catch (tf2::TransformException &ex){
+    ROS_WARN("%s", ex.what());
+    return;
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::ConstPtr output_cloud_ptr = output_cloud.makeShared();
+  if (output_cloud_ptr->empty()){
+    ROS_WARN_STREAM("No cloud to cluster in RadarPointsToCluster");
+    return;
+  }
+    
+
+  KdTree::Ptr tree{new KdTree};
+  tree->setInputCloud(output_cloud_ptr);
+  euclidean_clustering.setSearchMethod(tree);
+  euclidean_clustering.setInputCloud(output_cloud_ptr);
+
+  // Extract clusters from the filtered cloud in output frame and save their indices. 
+  // cluster_indices[i] contains an array of each point in the original cloud that 
+  // correspond to the i'th cluster.
+
   std::vector<pcl::PointIndices> cluster_indices;
   euclidean_clustering.extract(cluster_indices);
 
   std_msgs::Header common_header;
   common_header.seq = pub_seq;
   common_header.stamp = ros::Time::now();
-  common_header.frame_id = output_frame;
+  common_header.frame_id = output_frame_id;
 
   jsk_recognition_msgs::PolygonArray hulls;
-  custom_msgs::RadarScan scan;
+  autosea_msgs::RadarScan scan;
   for (auto cit = cluster_indices.begin(); cit != cluster_indices.end();
-       ++cit) {
+      ++cit) {
 
     PointCloud::Ptr cluster{new PointCloud};
     for (const auto &idx :
-         cit->indices) { // Fetch the points from the original cloud that
-                         // correspond to the i'th cluster
-      cluster->push_back((*cloud)[idx]);
+        cit->indices) { // Fetch the points from the output cloud that
+                        // correspond to the i'th cluster
+      cluster->push_back((output_cloud)[idx]);
     }
 
     PointCloud hull;
@@ -63,10 +123,10 @@ void PclClustering::pcl_cb(const PointCloud::ConstPtr &cloud) {
     single_polygon.header = common_header;
     hulls.polygons.push_back(single_polygon);
 
-    custom_msgs::RadarCluster cl;
+    autosea_msgs::RadarCluster cl;
     cl.header = common_header;
-    // cl.type = custom_msgs::RadarCluster::EXTENDED;
-    cl.type = custom_msgs::RadarCluster::POINT;
+    // cl.type = autosea_msgs::RadarCluster::EXTENDED;
+    cl.type = autosea_msgs::RadarCluster::POINT;
     geometry_msgs::Point centroid;
     cloud_to_centroid(cluster, centroid);
     cl.centroid = centroid;
@@ -125,7 +185,19 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "points_to_cluster");
   ros::NodeHandle nh;
   PclClustering clustering_node(nh);
-  ros::spin();
+  landmap = new Landmap();
 
+  double refLat, refLon;
+  std::string location, frame_type;
+  nh.getParam("/world/location", location);
+  nh.getParam("/world/frame", frame_type);
+
+  std::string world_frame = "/" + location + "_" + frame_type;
+  nh.getParam(world_frame + "/lat0", refLat);
+  nh.getParam(world_frame + "/lon0", refLon);
+
+  pListener = new tf2_ros::TransformListener(buffer);
+  landmap->initialize(refLat, refLon);
+  ros::spin();
   return 0;
 }

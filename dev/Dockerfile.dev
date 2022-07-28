@@ -1,0 +1,69 @@
+FROM ros:melodic-ros-core-bionic
+
+SHELL ["/bin/bash", "-c"] 
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN adduser --quiet --disabled-password --shell /bin/bash \
+    --home /home/revolt --gecos "Revolt user for running ROS" revolt
+RUN echo "revolt:revolt" | chpasswd
+RUN usermod -aG sudo revolt
+
+# Auto source ros
+RUN echo 'source /opt/ros/melodic/setup.bash' >> /home/revolt/.bashrc
+
+RUN mkdir -p /Documents
+
+ENV OpenCV_DIR /usr/share/OpenCV
+
+RUN apt-get -qq update --fix-missing && \
+    apt-get -qq install -y --allow-unauthenticated \
+    curl \
+    python-dev \
+    python3-dev \
+    python-catkin-tools \
+    python-opencv \
+    python-numpy=1:1.13.3-2ubuntu1 \
+    python-scipy=0.19.1-2ubuntu1 \
+    python-pymodbus=1.3.2-1 \
+    python-pyasn1=0.4.2-3 \
+    python-twisted-conch=1:17.9.0-2ubuntu0.3 \
+    python-tk=2.7.15~rc1-1
+
+RUN apt-get -qq update --fix-missing && \
+    apt-get -qq install -y --allow-unauthenticated \
+    libpcap-dev=1.8.1-6ubuntu1.18.04.1 \
+    libyaml-cpp-dev=0.5.2-4ubuntu1 \
+    dbus-x11 \
+    libavcodec57 \
+    libavformat57 \
+    libavutil55 \
+    ros-melodic-roslint \
+    ros-melodic-tf-conversions \
+    ros-melodic-tf2-kdl \
+    ros-melodic-dynamic-reconfigure \
+    ros-melodic-pcl-ros \
+    ros-melodic-laser-geometry \
+    ros-melodic-nmea-msgs \
+    ros-melodic-nmea-comms \
+    ros-melodic-tf2-geometry-msgs \
+    ros-melodic-image-transport \
+    ros-melodic-rqt-reconfigure \
+    ros-melodic-nav-msgs \
+    ros-melodic-geographic-msgs \ 
+    ros-melodic-map-server \ 
+    ros-melodic-costmap-2d \ 
+    ros-melodic-velodyne \
+    ros-melodic-message-filters \
+    ros-melodic-tf2-geometry-msgs \ 
+    ros-melodic-image-geometry \
+    ros-melodic-vision-opencv\
+    ros-melodic-cv-bridge \
+    ros-melodic-jsk-rviz-plugins \
+    ros-melodic-rosbridge-server
+
+RUN service dbus start
+
+RUN source /opt/ros/melodic/setup.bash
+
+CMD ["/bin/bash"]

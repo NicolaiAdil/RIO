@@ -64,6 +64,11 @@ Like most other ReVolt submodules, this repository has its own Dockerfile and wi
 2.  Build the Docker container by running `docker build -f ./SensorFusion/Dockerfile --tag revolt:sensor-fusion .`
 3.  Deploy the container using `docker run --rm -it revolt:sensor-fusion` or by using the entry in the docker-compose file found in the ControlSystem repository
 
+# Developing in devcontainer
+If you want to write code without rebuilding the image all the time you need to clone the RevoltMsgs and DigitalTwin repos to the parent folder of SensorFusion.
+Then you can use the commands `docker-compose -f ./dev/docker-compose.yml up sensor-fusion -d` to build and run the image and then `docker exec -it dev-sensor-fusion bash`
+
+Swap "sensor-fusion" for "sensor-fusion-win" if using windows.
 
 # Build and Test
 TODO: Describe and show how to build your code and run the tests. 

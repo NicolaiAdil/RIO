@@ -23,6 +23,8 @@ include_directories(${Eigen_INCLUDE_DIRS})
 add_definitions(-std=c++11)
 set( CMAKE_EXPORT_COMPILE_COMMANDS 1 )
 
+catkin_python_setup()
+
 generate_messages(
   DEPENDENCIES
   std_msgs

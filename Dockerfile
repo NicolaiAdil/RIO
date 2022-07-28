@@ -100,7 +100,7 @@ RUN apt-get -qq update --fix-missing && \
     # ros-melodic-diagnostic-updater \ 
     ros-melodic-roslint \
     # ros-melodic-gps-common \
-    # ros-melodic-geographic-msgs \
+    ros-melodic-geographic-msgs \
     ros-melodic-tf-conversions \
     ros-melodic-tf2-kdl \
     ros-melodic-dynamic-reconfigure \

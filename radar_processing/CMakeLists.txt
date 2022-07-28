@@ -13,12 +13,18 @@ find_package(catkin REQUIRED COMPONENTS
   roslint
   rospy
   sensor_msgs
+  autosea_msgs
   std_msgs
   tf
   pcl_ros
+  landmap_lib
 )
+
 catkin_package(
-  CATKIN_DEPENDS custom_msgs diagnostic_msgs geometry_msgs roscpp roslint rospy sensor_msgs std_msgs pcl_ros
+  INCLUDE_DIRS include
+  CATKIN_DEPENDS custom_msgs diagnostic_msgs geometry_msgs roscpp 
+    roslint rospy sensor_msgs std_msgs pcl_ros autosea_msgs landmap_lib
+#  DEPENDS system_lib
 )
 include_directories(
   include

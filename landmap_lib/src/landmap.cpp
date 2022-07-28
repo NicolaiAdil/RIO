@@ -1,13 +1,7 @@
-#include "landmap.h"
-#include "ros/package.h"
-#include "ros/ros.h"
-#include <algorithm>
-#include <cmath>
-#include <fstream>
+#include "landmap_lib/landmap.h"
 
 #define Deg2Rad M_PI / 180.0
 
-const double MAXRANGE = 1000.0;
 // const double refLat = 63.4405479431 ;
 // const double refLon = 10.4229335785 ;
 
@@ -77,9 +71,10 @@ std::vector<std::vector<std::string>> readCSV(std::istream &in) {
 std::vector<indexedPolygonPoint_t> getPolygonPoints(const double &refLatDeg,
                                                     const double &refLonDeg) {
   std::ifstream myFile;
-  std::string pkg_path = ros::package::getPath("lidar_processing");
-  pkg_path = pkg_path + "/src/tempNodes.csv";
-  myFile.open(pkg_path.c_str());
+  std::string pkg_name = "landmap_lib";
+  std::string pkg_path = ros::package::getPath(pkg_name);
+  std::string csv_path = pkg_path + "/maps/tempNodes.csv";
+  myFile.open(csv_path.c_str());
   std::vector<std::vector<std::string>> stringTable = readCSV(myFile);
 
   double refLat = refLatDeg * Deg2Rad;
@@ -166,36 +161,36 @@ std::vector<polygon_t> getRelevantPolygons(const double &lat,
 }
 
 int getBitPos(int n_int, int e_int) {
-  if (n_int < 0 || n_int > 3999) {
+  if (n_int < 0 || n_int > int(2*MAXRANGE*DPM-1)) {
     return -1;
   }
-  if (e_int < 0 || e_int > 3999) {
+  if (e_int < 0 || e_int > int(2*MAXRANGE*DPM-1)) {
     return -1;
   }
-  return n_int * 4000 + e_int;
+  return n_int * int(2*MAXRANGE*DPM) + e_int;
 }
 
 bool checkPointsinArea(const polygonPoint_t &point1,
                        const polygonPoint_t &point2) {
-  if (point1.n < -1000.0 && point2.n < -1000.0)
+  if (point1.n < -MAXRANGE && point2.n < -MAXRANGE)
     return false;
-  if (point1.n > 1000.0 && point2.n > 1000.0)
+  if (point1.n > MAXRANGE && point2.n > MAXRANGE)
     return false;
-  if (point1.e < -1000.0 && point2.e < -1000.0)
+  if (point1.e < -MAXRANGE && point2.e < -MAXRANGE)
     return false;
-  if (point1.e > 1000.0 && point2.e > 1000.0)
+  if (point1.e > MAXRANGE && point2.e > MAXRANGE)
     return false;
   return true;
 }
 
 bool checkPointinArea(const polygonPoint_t &point) {
-  if (point.n > -1000.0 && point.n < 1000.0 && point.e > -1000.0 &&
-      point.e < 1000.0)
+  if (point.n > -MAXRANGE && point.n < MAXRANGE && point.e > -MAXRANGE &&
+      point.e < MAXRANGE)
     return true;
   return false;
 }
 
-void increasePolygonSize(std::bitset<16000000> &map, int n_int, int e_int,
+void increasePolygonSize(std::bitset<MAPSIZE> &map, int n_int, int e_int,
                          int radius) {
 
   for (int n = n_int - radius; n < n_int + radius + 1; n++) {
@@ -209,8 +204,8 @@ void increasePolygonSize(std::bitset<16000000> &map, int n_int, int e_int,
 }
 
 void traversePolygon(std::vector<polygonPoint_t> &points,
-                     std::bitset<16000000> &map,
-                     std::bitset<16000000> &checkMap) {
+                     std::bitset<MAPSIZE> &map,
+                     std::bitset<MAPSIZE> &checkMap) {
   polygonPoint_t point1 = points[0];
   polygonPoint_t point2;
   polygonPoint_t curPoint;
@@ -228,20 +223,20 @@ void traversePolygon(std::vector<polygonPoint_t> &points,
       while (edgeLength > 0.001 && abs(curPoint.n - point1.n) <= abs_n &&
              abs(curPoint.e - point1.e) <= abs_e) {
         if (checkPointinArea(curPoint)) {
-          int n_int = (int)(floor(2000.0 + 2 * curPoint.n));
-          int e_int = (int)(floor(2000.0 + 2 * curPoint.e));
+          int n_int = (int)(floor(MAXRANGE*DPM + DPM * curPoint.n));
+          int e_int = (int)(floor(MAXRANGE*DPM + DPM * curPoint.e));
           map.set(getBitPos(n_int, e_int));
           increasePolygonSize(map, n_int, e_int, 6);
           checkMap.set(getBitPos(n_int, e_int));
         }
-        curPoint.n += n_unit * 0.5;
-        curPoint.e += e_unit * 0.5;
+        curPoint.n += n_unit * 1.0/float(DPM);
+        curPoint.e += e_unit * 1.0/float(DPM);
       }
       curPoint.n = point2.n;
       curPoint.e = point2.e;
       if (checkPointinArea(curPoint)) {
-        int n_int = (int)(floor(2000.0 + 2 * curPoint.n));
-        int e_int = (int)(floor(2000.0 + 2 * curPoint.e));
+        int n_int = (int)(floor(MAXRANGE*DPM + DPM * curPoint.n));
+        int e_int = (int)(floor(MAXRANGE*DPM + DPM * curPoint.e));
         map.set(getBitPos(n_int, e_int));
         increasePolygonSize(map, n_int, e_int, 6);
         checkMap.set(getBitPos(n_int, e_int));
@@ -252,33 +247,35 @@ void traversePolygon(std::vector<polygonPoint_t> &points,
 }
 
 void scanLinePolygon(std::vector<polygonPoint_t> &points,
-                     std::bitset<16000000> &map, int n_min, int n_max) {
+                     std::bitset<MAPSIZE> &map, int n_min, int n_max) {
   double n =
-      -1000 + n_min / 2 - 0.25; //-0.25 because 0.5 will be added in loop.
+      -MAXRANGE + n_min / DPM - 1/(2*DPM); // -1/(2DPM) because 1/dpm will be added in loop.
   for (int n_int = n_min; n_int <= n_max; n_int++) {
-    n += 0.5;
+    n += 1/DPM;
 
     int i, j, nodes = 0;
     int nodeX[100], e_int;
     for (i = 0, j = points.size() - 1; i < points.size(); j = i++) {
       if ((points[i].n > n) != (points[j].n > n)) {
         nodeX[nodes++] = (int)(floor(
-            2000.0 + 2 * ((points[j].e - points[i].e) * (n - points[i].n) /
+            MAXRANGE*DPM + DPM * ((points[j].e - points[i].e) * (n - points[i].n) /
                               (points[j].n - points[i].n) +
                           points[i].e)));
       }
     }
     if (nodes > 0) {
       std::sort(nodeX, nodeX + nodes);
-      int mapN = n_int * 4000;
+      int mapN = n_int * 2 * MAXRANGE * DPM;
       for (i = 0; i < nodes; i += 2) {
-        if (nodeX[i] > 3999)
+        if (nodeX[i] > int(2 * MAXRANGE * DPM - 1))
           break;
         if (nodeX[i + 1] > 0) {
-          if (nodeX[i] < 0)
+          if (nodeX[i] < 0) {
             nodeX[i] = 0;
-          if (nodeX[i + 1] > 3999)
-            nodeX[i + 1] = 3999;
+          }
+          if (nodeX[i + 1] > int(2 * MAXRANGE * DPM - 1)){
+            nodeX[i + 1] = int(2 * MAXRANGE * DPM - 1);
+          }
           for (int e_int = nodeX[i]; e_int < nodeX[i + 1] + 1; e_int++) {
             map.set(mapN + e_int);
           }
@@ -289,21 +286,21 @@ void scanLinePolygon(std::vector<polygonPoint_t> &points,
 }
 
 void scanLinePolygons(std::vector<polygon_t> &polygons,
-                      std::bitset<16000000> &map) {
+                      std::bitset<MAPSIZE> &map) {
   for (auto i = 0; i < polygons.size(); i++) {
-    int n_min = (int)(floor(2000.0 + 2 * polygons[i].min_n));
-    int n_max = (int)(floor(2000.0 + 2 * polygons[i].max_n));
+    int n_min = (int)(floor(MAXRANGE*DPM + DPM * polygons[i].min_n));
+    int n_max = (int)(floor(MAXRANGE*DPM + DPM * polygons[i].max_n));
     if (n_min < 0)
       n_min = 0;
-    if (n_max > 3999)
-      n_max = 3999;
+    if (n_max > 2*MAXRANGE*DPM)
+      n_max = int(2*MAXRANGE*DPM - 1);
     scanLinePolygon(polygons[i].points, map, n_min, n_max);
   }
 }
 
 void checkPolygons(std::vector<polygon_t> &polygons,
-                   std::bitset<16000000> &map) {
-  std::bitset<16000000> checkMap;
+                   std::bitset<MAPSIZE> &map) {
+  std::bitset<MAPSIZE> checkMap;
   for (std::vector<int>::size_type i = 0; i < polygons.size(); i++) {
     traversePolygon(polygons[i].points, map, checkMap);
   }
@@ -319,8 +316,8 @@ void Landmap::initialize(double lat, double lon) {
 }
 
 bool Landmap::isLand(double n, double e) {
-  int n_int = (int)(floor(2000.0 + 2 * n));
-  int e_int = (int)(floor(2000.0 + 2 * e));
+  int n_int = (int)(floor(MAXRANGE*DPM + DPM * n));
+  int e_int = (int)(floor(MAXRANGE*DPM + DPM * e));
   int bitPos = getBitPos(n_int, e_int);
   if (bitPos < 0) {
     return false;

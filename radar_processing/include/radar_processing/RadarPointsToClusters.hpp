@@ -3,15 +3,26 @@
 
 #include "ros/ros.h"
 
+#include <pcl_conversions/pcl_conversions.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/surface/convex_hull.h>
 #include <pcl_ros/point_cloud.h>
+#include "pcl/point_types.h"
+#include "pcl_ros/transforms.h"
+#include <pcl_conversions/pcl_conversions.h>
+#include "landmap_lib/landmap.h"
 
-#include "custom_msgs/RadarCluster.h"
-#include "custom_msgs/RadarScan.h"
+#include "autosea_msgs/RadarCluster.h"
+#include "autosea_msgs/RadarScan.h"
 #include "geometry_msgs/PolygonStamped.h"
+#include "geometry_msgs/TransformStamped.h"
+#include "sensor_msgs/PointCloud2.h"
+
 #include "jsk_recognition_msgs/PolygonArray.h"
+
+#include "tf2_ros/transform_listener.h"
+#include <cmath>
 
 typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
 typedef pcl::search::KdTree<pcl::PointXYZ> KdTree;
@@ -27,7 +38,8 @@ private:
   ros::Publisher scan_pub;
 
   int pub_seq;
-  std::string output_frame;
+  std::string output_frame_id;
+  std::string input_frame_id;
 
   pcl::EuclideanClusterExtraction<pcl::PointXYZ> euclidean_clustering;
 

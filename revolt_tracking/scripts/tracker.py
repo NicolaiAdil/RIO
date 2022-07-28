@@ -120,6 +120,12 @@ def lidar_scan_callback(msg, args):
     # process and update lists
     plt.show(block=True)
 
+    if not msg.radar_scan:
+        mutex.release()
+        rospy.logwarn("No cluster in lidar_scan")
+        # ----- End mutex and return early if no clusters -----
+        return
+    
     estimates, new_tracks = manager.step(current_measurements, timestamp)
 
     # ----- End mutex ------
@@ -131,6 +137,58 @@ def lidar_scan_callback(msg, args):
     for new_track in new_tracks:
         [publish_estimate(estimate, track_pub) for estimate in new_track]
 
+def radar_scan_callback(msg, args):
+
+    track_pub, manager, ownship_tf, cov_parameters, pdaf_tracker = args
+    current_measurements = set()
+
+    # ----- Start mutex ------
+    mutex.acquire()
+
+    pdaf_tracker.set_measurement_type("radar")
+    current_position = ownship_position(ownship_tf)
+    manager.tracking_method.measurement_model.update_ownship(current_position)
+    for cluster in msg.radar_scan:
+        value = np.array([cluster.centroid.x, cluster.centroid.y])
+        if np.linalg.norm(value) == np.inf:
+            rospy.logwarn("Cluster centroid at infinity; discarding measurement")
+            continue
+        timestamp = cluster.header.stamp.to_sec()
+        if cov_parameters["type"] == "cartesian":
+
+            covariance = cov_parameters["cartesian"] * np.identity(2)
+
+        elif cov_parameters["type"] == "polar":
+
+            r = np.linalg.norm(value - current_position)
+            bearing = np.arctan2(
+                value[0] - current_position[0], value[1] - current_position[1]
+            )
+            covariance = autotrack.polar2cartesian_covariance(
+                r, bearing, cov_parameters["range"], cov_parameters["bearing"]
+            )
+
+        z = tracking_common.Measurement(value, timestamp, covariance, logger=rospy)
+        current_measurements.add(z)
+    # process and update lists
+    plt.show(block=True)
+
+    if not msg.radar_scan:
+        mutex.release()
+        rospy.logwarn("No cluster in radar_scan")
+        # ----- End mutex and return early if no clusters -----
+        return
+
+    estimates, new_tracks = manager.step(current_measurements, timestamp)
+
+    # ----- End mutex ------
+    mutex.release()
+
+    # Publish estimates and status (for visualization)
+    common_header = msg.radar_scan[0].header
+    [publish_estimate(est, track_pub) for est in estimates]
+    for new_track in new_tracks:
+        [publish_estimate(estimate, track_pub) for estimate in new_track]
 
 def camera_scan_callback(msg, args):
 
@@ -173,6 +231,7 @@ def camera_scan_callback(msg, args):
     [publish_estimate(est, track_pub) for est in estimates]
 
 
+
 def service_handler(tracking_requirements, track_manager, ownship_tf, N_smooth):
     t_start = rospy.Time.now()
     current_position = ownship_position(ownship_tf)
@@ -213,10 +272,9 @@ if __name__ == "__main__":
     # Update the autopy tracking parameters
     rospy.init_node("lidar_camera_tracker")
     track_parameters = rospy.get_param("~")
-    measurement_covariance_parameters = track_parameters["measurement_covariance_lidar"]
-    measurement_covariance_parameters_camera = track_parameters[
-        "measurement_covariance_camera"
-    ]
+    measurement_covariance_parameters_lidar = track_parameters["measurement_covariance_lidar"]
+    measurement_covariance_parameters_radar = track_parameters["measurement_covariance_radar"]
+    measurement_covariance_parameters_camera = track_parameters["measurement_covariance_camera"]
 
     # Setup tracking for Revolt
     target_model = tracking_common.DWNAModelRevolt(
@@ -228,7 +286,13 @@ if __name__ == "__main__":
     H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
     lidar_measurement_model = tracking_common.CartesianMeasurementModel(
         H,
-        measurement_covariance_parameters["cartesian"] * np.identity(2),
+        measurement_covariance_parameters_lidar["cartesian"] * np.identity(2),
+        track_parameters["detection_probability"],
+        clutter_model=tracking_common.NonparametricClutterModel(),
+    )
+    radar_measurement_model = tracking_common.CartesianMeasurementModel(
+        H,
+        measurement_covariance_parameters_radar["cartesian"] * np.identity(2),
         track_parameters["detection_probability"],
         clutter_model=tracking_common.NonparametricClutterModel(),
     )
@@ -241,6 +305,7 @@ if __name__ == "__main__":
 
     my_measurement_models = []
     my_measurement_models.append(lidar_measurement_model)
+    my_measurement_models.append(radar_measurement_model)
     my_measurement_models.append(camera_measurement_model)
 
     # Setup Telemetron ownship tracker
@@ -280,16 +345,30 @@ if __name__ == "__main__":
     track_publisher = rospy.Publisher(
         estimate_topic, automsg.RadarEstimate, queue_size=10
     )
-    scan_topic = rospy.get_param("~scan_topic", "lidar_centroids")
+    lidar_scan_topic = rospy.get_param("~lidar_scan_topic", "lidar_centroids")
     rospy.Subscriber(
-        scan_topic,
+        lidar_scan_topic,
         automsg.RadarScan,
         callback=lidar_scan_callback,
         callback_args=(
             track_publisher,
             track_manager,
             ReVolt_tf,
-            measurement_covariance_parameters,
+            measurement_covariance_parameters_lidar,
+            tracker,
+        ),
+        queue_size=1,
+    )
+    radar_scan_topic = rospy.get_param("~radar_scan_topic", "radar_centroids")
+    rospy.Subscriber(
+        radar_scan_topic,
+        automsg.RadarScan,
+        callback=radar_scan_callback,
+        callback_args=(
+            track_publisher,
+            track_manager,
+            ReVolt_tf,
+            measurement_covariance_parameters_radar,
             tracker,
         ),
         queue_size=1,
