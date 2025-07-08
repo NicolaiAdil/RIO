@@ -7,6 +7,11 @@ you can see topics:
 ros2 run tf2_ros tf2_echo odom base_link
 ros2 topic echo /odometry/filtered
 
+Enable filter if neede ususally its alreday enabled tho by defaukt, sanity check jesjes:
+ros2 service call /enable std_srvs/srv/Empty "{}"
+
+ros2 service call /reset std_srvs/srv/Empty "{}"
+
 
 /odometry/filtered IS THE MOST importnat topic that MUST be used for controls and navigation further
 
@@ -16,7 +21,7 @@ The TF must be braodcasted in a good time before EKF can start, thsi way TF has 
 
 ALso shoudl exlain what internal_sensors_static_tf.yaml is and what it does
 
-
+Also the utm zone 32 stuff fr Norway very important
 
 martynas@MARTYNAS-PC:~/Desktop/MartynasLinux/DNV/GUI_ws$ 
 

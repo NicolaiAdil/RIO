@@ -30,7 +30,10 @@ navsat_transform_node:
                   false, false, false]  # navsat only uses IMU→heading internally
 
     use_odometry_yaw: false             # get heading from IMU not /odometry/filtered
-    wait_for_datum: false               # don’t block if no fix yet
+    wait_for_datum: true               # don’t block if no fix yet
+
+    utm_zone: 32 # UTM Norway
+    utm_northern_hemisphere: true
 
     # ── Manual Datum (optional override) ─────────────────────
     # If you want to hard‐seed your origin instead of waiting for /fix:
