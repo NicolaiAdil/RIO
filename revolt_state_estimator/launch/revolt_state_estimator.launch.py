@@ -46,7 +46,7 @@ def load_static_tfs():
 def generate_launch_description():
     # --- locate configs ---
     pkg_share  = FindPackageShare('revolt_state_estimator')
-    navsat_cfg = PathJoinSubstitution([pkg_share, 'config', 'navsat.yaml'])
+    navsat_cfg = PathJoinSubstitution([pkg_share, 'config', 'navsat_transform.yaml'])
     ekf_cfg    = PathJoinSubstitution([pkg_share, 'config', 'ekf.yaml'])
 
     # --- 1) STATIC TFs ---
@@ -56,7 +56,7 @@ def generate_launch_description():
     # We must wait at least 1.0 second here to give static TFs time
     # to register in the TF tree *before* navsat_transform_node & ekf_node start.
     # If you shorten this below 1 second, the EKF may silently drop data!
-    DELAY_BEFORE_FUSION = 0.0  # !!! DO NOT TOUCH, MUST BE 1.0 !!!
+    DELAY_BEFORE_FUSION = 10.0  # !!! DO NOT TOUCH, MUST BE 1.0 !!!
 
     # --- 2) Delayed launch of sensor–fusion nodes ---
     fusion = TimerAction(
@@ -65,8 +65,10 @@ def generate_launch_description():
 
             # --- navsat_transform_node ---
             Node(
-                package='robot_localization', executable='navsat_transform_node',
-                name='navsat_transform_node', output='screen',
+                package='robot_localization',
+                executable='navsat_transform_node',
+                name='navsat_transform_node',
+                output='screen',
                 parameters=[navsat_cfg],
                 remappings=[
                     # hardware topics → node’s expected topics
@@ -82,8 +84,10 @@ def generate_launch_description():
 
             # --- ekf_node ---
             Node(
-                package='robot_localization', executable='ekf_node',
-                name='ekf_node', output='screen',
+                package='robot_localization',
+                executable='ekf_node',
+                name='ekf_filter_node', 
+                output='screen',
                 parameters=[ekf_cfg],
                 arguments=[
                     '--ros-args',
