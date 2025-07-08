@@ -13,7 +13,7 @@ import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import TimerAction, LogInfo
+from launch.actions import TimerAction, LogInfo, ExecuteProcess
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -59,7 +59,7 @@ def generate_launch_description():
     DELAY_BEFORE_FUSION = 10.0  # !!! DO NOT TOUCH, MUST BE 1.0 !!!
 
     # --- 2) Delayed launch of sensor–fusion nodes ---
-    fusion = TimerAction(
+    navsat_and_ekf = TimerAction(
         period=DELAY_BEFORE_FUSION,
         actions=[
 
@@ -97,5 +97,26 @@ def generate_launch_description():
         ]
     )
 
+    # After navsat_transform_node is up, give it 1 s, then tell it “Zone 32 N”
+    set_utm_zone = TimerAction(
+        period=1.0,  # wait for the node to come up
+        actions=[
+            LogInfo(msg="[revolt_state_estimator] Setting UTM zone to 32N…"),
+            ExecuteProcess(
+                cmd=[
+                    'ros2', 'service', 'call',
+                    '/navsat_transform_node/setUTMZone',
+                    'robot_localization/srv/SetUTMZone',
+                    "utm_zone: 32"
+                ],
+                output='screen'
+            )
+        ]
+    )
+
     # --- assemble everything ---
-    return LaunchDescription(static_tfs + [fusion])
+    return LaunchDescription([
+        *static_tfs,
+        navsat_and_ekf,
+        set_utm_zone,
+    ])
