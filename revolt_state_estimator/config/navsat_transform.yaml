@@ -1,0 +1,29 @@
+navsat_transform_node:
+  ros__parameters:
+    # ── Timing ───────────────────────────────────────────────────────────
+    use_sim_time: false
+
+    # How often (Hz) to check for new GPS fixes & (optionally) republish /gps/filtered
+    frequency: 30.0
+    # Seconds to wait before computing the local origin (datum → world transform)
+    delay: 3.0
+
+    # ── Heading calibration ──────────────────────────────────────────────
+    # Magnetic declination at your location (radians)
+    magnetic_declination_radians: 0.0
+    # Add this to raw IMU yaw so that yaw=0 corresponds to east
+    yaw_offset: 0.0
+
+    # ── Altitude & UTM transforms ───────────────────────────────────────
+    zero_altitude: false             # force Z=0 in odometry output
+    broadcast_utm_transform: true    # publish UTM ↔ world_frame
+    broadcast_utm_transform_as_parent_frame: true
+    publish_filtered_gps: true       # republish back→converted NavSatFix on /gps/filtered
+
+    # ── Use odometry for heading? ────────────────────────────────────────
+    use_odometry_yaw: false
+    wait_for_datum: false            # don’t block waiting for first fix
+    # Manually seed datum [lat, lon, alt] if you prefer
+    datum: [55.944904, -3.186693, 0.0]
+
+    print_diagnostics: true

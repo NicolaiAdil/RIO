@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>revolt_state_estimator</name>
+  <version>0.0.1</version>
+  <description>Fuses Xsens IMU and Vector GNSS into odom+TF via robot_localization</description>
+  <maintainer email="smilingis.martynas@gmail.com">martynas</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>robot_localization</depend>
+  <depend>geographic_msgs</depend>
+
+  <depend>xsens</depend> <!-- IMU -->
+  <depend>nmea_navsat</depend> <!-- GNSS -->
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
