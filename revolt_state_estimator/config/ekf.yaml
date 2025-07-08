@@ -8,6 +8,15 @@ ekf_node:
     print_diagnostics: true
     debug: false
     publish_tf: true
+
+
+    #sensor_timeout: 10.0
+    #transform_timeout: 10.0
+
+    # If the filter sees a jump back in time, the filter is reset (convenient for testing with rosbags!)
+    reset_on_time_jump: true
+
+
     # debug_out_file: /full/path/to/debug.txt
 
     # ── Coordinate frames ────────────────────────────────────────────────

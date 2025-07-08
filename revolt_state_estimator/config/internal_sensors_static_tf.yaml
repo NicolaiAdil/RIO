@@ -1,0 +1,57 @@
+# A list of “static” transforms—i.e. fixed, time-invariant relationships—
+# that your robot_localization pipeline (and any other TF-using node) will rely on.
+internal_sensors_static_tf:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 1) Define the transform from your global “map” frame into your 
+  #    odometry frame (“odom”).  In most mobile robots “map” = world,
+  #    and “odom” is where you start counting wheel odometry (i.e. (0,0,0)).
+  # ─────────────────────────────────────────────────────────────────────────────
+  - parent_frame: map        # the “world” or global reference frame
+    child_frame:  odom       # the frame in which your wheel odometry lives
+    translation:  [0.0, 0.0, 0.0]
+      # [x, y, z] offsets of odom relative to map, in meters
+      # zero here means odom = map at startup
+    rotation_rpy: [0.0, 0.0, 0.0]
+      # [roll, pitch, yaw] of odom relative to map, in radians
+      # all zero means no rotation—odom axes align with map axes
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2) Define the transform from “odom” → “base_link” (your robot’s base frame).
+  #    base_link is the point on your robot that all odometry, IMU, etc. is
+  #    reported relative to.
+  # ─────────────────────────────────────────────────────────────────────────────
+  - parent_frame: odom        # odometry frame
+    child_frame:  base_link   # point on robot where odom is attached
+    translation:  [0.0, 0.0, 0.0]
+      # [x,y,z] offset of base_link from the odom origin—usually zero
+      # if your odometry is already computed for the robot’s COM.
+    rotation_rpy: [0.0, 0.0, 0.0]
+      # any fixed tilt or yaw offset between odom axes and base axes
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 3) Define the transform from “base_link” → “imu_link”.
+  #    imu_link is the coordinate frame in which your IMU publishes its data.
+  #    If your IMU sits at the robot’s center of mass, this may be identity.
+  # ─────────────────────────────────────────────────────────────────────────────
+  - parent_frame: base_link   # robot base
+    child_frame:  imu_link    # IMU sensor’s own frame
+    translation:  [0.0, 0.0, 0.0]
+      # [x,y,z] of IMU relative to base_link, in meters
+      # e.g. if your IMU sits 0.1 m above your base, use [0.0, 0.0, 0.1]
+    rotation_rpy: [0.0, 0.0, 0.0]
+      # any fixed orientation offset of IMU from base_link
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4) Define the transform from “base_link” → “gps_link”.
+  #    gps_link is the frame in which your GNSS (GPS) messages’ fixes are given.
+  #    If the antenna sits directly at COM, this too can be identity.
+  # ─────────────────────────────────────────────────────────────────────────────
+  - parent_frame: base_link   # robot base
+    child_frame:  gps_link    # GNSS antenna frame
+    translation:  [0.0, 0.0, 0.0]
+      # [x,y,z] of your GPS antenna relative to base_link
+      # e.g. if your antenna is mounted on the mast 0.5 m above COM:
+      # [0.0, 0.0, 0.5]
+    rotation_rpy: [0.0, 0.0, 0.0]
+      # any fixed pitch/roll/yaw offset of the antenna relative to base_link

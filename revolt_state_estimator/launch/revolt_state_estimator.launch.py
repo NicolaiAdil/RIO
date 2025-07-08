@@ -1,115 +1,97 @@
+#!/usr/bin/env python3
+"""
+Launch file for Revolt State Estimator:
+
+ 1) Dynamically loads all static TFs from config/static_transforms.yaml
+ 2) Immediately starts static_transform_publisher nodes for those frames
+ 3) Logs a “Please wait” message and then, AFTER A DELAY, launches
+    navsat_transform_node and ekf_node.
+"""
+
+import os
+import yaml
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch.actions import TimerAction, LogInfo
 from launch.substitutions import PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+def load_static_tfs():
+    pkg_share = get_package_share_directory('revolt_state_estimator')
+    yaml_path = os.path.join(pkg_share, 'config', 'internal_sensors_static_tf.yaml')
+    with open(yaml_path, 'r') as f:
+        entries = yaml.safe_load(f).get('internal_sensors_static_tf', [])
+
+    nodes = []
+    for e in entries:
+        px, py, pz = e['translation']
+        rr, rp, ry = e['rotation_rpy']
+        parent = e['parent_frame']
+        child  = e['child_frame']
+
+        args = [
+            '--x', str(px), '--y', str(py), '--z', str(pz),
+            '--roll', str(rr), '--pitch', str(rp), '--yaw', str(ry),
+            '--frame-id', parent, '--child-frame-id', child,
+        ]
+        nodes.append(Node(
+            package='tf2_ros', executable='static_transform_publisher',
+            name=f'static_{parent}_to_{child}', output='screen',
+            arguments=args
+        ))
+    return nodes
+
 def generate_launch_description():
-    # 1) Locate this package’s share directory so we can find our YAMLs
-    pkg_share = FindPackageShare('revolt_state_estimator')
-
-    # 2) Point to the two config files
+    # --- locate configs ---
+    pkg_share  = FindPackageShare('revolt_state_estimator')
     navsat_cfg = PathJoinSubstitution([pkg_share, 'config', 'navsat.yaml'])
-    ekf_cfg   = PathJoinSubstitution([pkg_share, 'config', 'ekf.yaml'])
+    ekf_cfg    = PathJoinSubstitution([pkg_share, 'config', 'ekf.yaml'])
 
-    return LaunchDescription([
+    # --- 1) STATIC TFs ---
+    static_tfs = load_static_tfs()
 
-        # =============================================================================
-        # STATIC TRANSFORMS
-        # =============================================================================
+    # !!! WARNING !!!
+    # We must wait at least 1.0 second here to give static TFs time
+    # to register in the TF tree *before* navsat_transform_node & ekf_node start.
+    # If you shorten this below 1 second, the EKF may silently drop data!
+    DELAY_BEFORE_FUSION = 0.0  # !!! DO NOT TOUCH, MUST BE 1.0 !!!
 
-        # 1) map → odom 
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_map_to_odom',
-            output='screen',
-            arguments=[
-                '--x', '0', '--y', '0', '--z', '0',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'map',
-                '--child-frame-id', 'odom',
-            ],
-        ),
+    # --- 2) Delayed launch of sensor–fusion nodes ---
+    fusion = TimerAction(
+        period=DELAY_BEFORE_FUSION,
+        actions=[
 
-        # 2) odom → base_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_odom_to_base_link',
-            output='screen',
-            arguments=[
-                '--x', '0', '--y', '0', '--z', '0',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'odom',
-                '--child-frame-id', 'base_link',
-            ],
-        ),
+            # --- navsat_transform_node ---
+            Node(
+                package='robot_localization', executable='navsat_transform_node',
+                name='navsat_transform_node', output='screen',
+                parameters=[navsat_cfg],
+                remappings=[
+                    # hardware topics → node’s expected topics
+                    ('gps/fix',           '/fix'),              # real GNSS → gps/fix
+                    ('imu',               '/imu/data'),         # IMU driver → imu
+                    ('odometry/filtered', '/odometry/filtered'),# seed EKF pose → odometry/filtered
+                ],
+                arguments=[
+                    '--ros-args',
+                    '--log-level', 'navsat_transform_node:=DEBUG',
+                ],
+            ),
 
-        # 3) base_link → imu_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_base_link_to_imu_link',
-            output='screen',
-            arguments=[
-                '--x', '0', '--y', '0', '--z', '0',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'base_link',
-                '--child-frame-id', 'imu_link',
-            ],
-        ),
+            # --- ekf_node ---
+            Node(
+                package='robot_localization', executable='ekf_node',
+                name='ekf_node', output='screen',
+                parameters=[ekf_cfg],
+                arguments=[
+                    '--ros-args',
+                    '--log-level', 'ekf_node:=DEBUG',
+                ],
+            ),
+        ]
+    )
 
-        # 4) base_link → gps_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_base_link_to_gps_link',
-            output='screen',
-            arguments=[
-                '--x', '0', '--y', '0', '--z', '0',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'base_link',
-                '--child-frame-id', 'gps_link',
-            ],
-        ),
-
-        # =============================================================================
-        # navsat_transform_node
-        # =============================================================================
-
-        Node(
-            package='robot_localization',
-            executable='navsat_transform_node',
-            name='navsat_transform_node',
-            output='screen',
-            parameters=[navsat_cfg],
-            remappings=[
-                # remap your raw sensor topics into what the node expects:
-                ('gps/fix',     '/fix'),      # your GNSS driver → gps/fix
-                ('imu',         '/imu/data'), # your IMU driver → imu
-                ('odometry/filtered',     '/odometry/filtered'),  # seed odom → /odometry/filtered
-            ],
-            arguments=[
-                '--ros-args',
-                '--log-level', 'navsat_transform_node:=DEBUG'
-            ],
-        ),
-
-
-        # =============================================================================
-        # ekf_node
-        # =============================================================================
-
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_node',
-            output='screen',
-            parameters=[ekf_cfg],
-            arguments=[
-                '--ros-args',
-                '--log-level', 'ekf_node:=DEBUG'
-            ],
-        ),
-
-    ])
+    # --- assemble everything ---
+    return LaunchDescription(static_tfs + [fusion])

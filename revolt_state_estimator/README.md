@@ -1,10 +1,20 @@
 # Revolt State Estimator
 
-ros2 bag play data/2025-07-04_10-56-13_MartynasReVolt/
+launch using
 ros2 launch revolt_state_estimator revolt_state_estimator.launch.py
+
+you can see topics:
 ros2 run tf2_ros tf2_echo odom base_link
 ros2 topic echo /odometry/filtered
 
+
+/odometry/filtered IS THE MOST importnat topic that MUST be used for controls and navigation further
+
+We now see what we have The TF and the topics
+The TF must be braodcasted in a good time before EKF can start, thsi way TF has time to propagate through teh ssytem before EKF can use it 
+
+
+ALso shoudl exlain what internal_sensors_static_tf.yaml is and what it does
 
 
 
