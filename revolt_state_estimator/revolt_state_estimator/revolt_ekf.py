@@ -16,163 +16,301 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped
 from nav_msgs.msg import Odometry
 import tf_transformations
 import tf2_ros
 import numpy as np
-from filterpy.kalman import ExtendedKalmanFilter
 import pymap3d as pm
+
+from revolt_state_estimator.revolt_model import ReVoltModel
+from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
+from revolt_state_estimator.ekf import ExtendedKalmanFilter
+from revolt_state_estimator.utils import unwrap
 
 
 class RevoltEKF(Node):
+    # Initialize EKF system (START) ==================================================
     def __init__(self):
+        # ROS2 Node Setup ----------
         super().__init__('revolt_ekf')
 
-        # -- EKF state and covariances ------------------------------------------
-        # State vector: [x (east), y (north), yaw, v (forward speed)]
-        self.ekf = ExtendedKalmanFilter(dim_x=4, dim_z=2)
-        self.ekf.x = np.zeros(4)               # Initialize at origin
-        self.ekf.P = np.eye(4) * 1.0           # Initial state covariance
-        # Process noise: adjust to match ship dynamics uncertainty
-        self.ekf.Q = np.diag([0.1, 0.1, 0.01, 0.1])
+        # Ship Model Parameters
+        self.declare_parameter('revolt_model.m', 0.0) # mass [kg]
+        self.declare_parameter('revolt_model.dimensions', [0.0, 0.0]) # [radius (m), length (m)]
+        self.declare_parameter('revolt_model.thruster_placement', [0.0, 0.0]) # [x,y] in body frame [m]
+        self.declare_parameter('revolt_model.velocity_linear_max', 0.0) # max forward speed [m/s]
+        self.declare_parameter('revolt_model.velocity_angular_max', 0.0) # max yaw rate [rad/s]
+        _m = self.get_parameter('revolt_model.m').value
+        _dimensions = self.get_parameter('revolt_model.dimensions').value
+        _thruster_placement = self.get_parameter('revolt_model.thruster_placement').value
+        _velocity_linear_max = self.get_parameter('revolt_model.velocity_linear_max').value
+        _velocity_angular_max = self.get_parameter('revolt_model.velocity_angular_max').value
 
-        # Measurement noise covariances
-        self.R_fix  = np.diag([5.0, 5.0])   # GNSS position noise (m^2)
-        self.R_head = np.array([[0.05]])    # GNSS heading noise (rad^2)
-        self.R_imu  = np.diag([0.2, 0.1])   # [accel noise, yaw-rate noise]
+        # EKF Parameters
+        self.declare_parameter('revolt_ekf.Q', [0.0, 0.0, 0.0, 0.0, 0.0]) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_fix', [0.0, 0.0]) # [x (m), y (m)]
+        self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
+        self.declare_parameter('revolt_ekf.R_vel', [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_imu', [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
+        _Q = self.get_parameter('revolt_ekf.Q').value
+        _R_fix = self.get_parameter('revolt_ekf.R_fix').value
+        _R_head = self.get_parameter('revolt_ekf.R_head').value
+        _R_vel = self.get_parameter('revolt_ekf.R_vel').value
+        _R_imu = self.get_parameter('revolt_ekf.R_imu').value
+        _pred_freq = self.get_parameter('revolt_ekf.pred_freq').value
+
+        # ReVolt ship model setup ----------
+        self.revolt_model = ReVoltModel(
+            m=_m,
+            r=_dimensions[0],
+            l=_dimensions[1],
+            thruster_pos=_thruster_placement,
+            v_lin_max=_velocity_linear_max,
+            v_ang_max=_velocity_angular_max,
+        )
+
+        # EKF Setup ----------
+        # Ensures that we dont start estimating until EKF gets its first GNSS update
+        self.initialized = False
+
+        # Since we use Quaternion based EKF, but the controllers are in euler angles, we must remember to unwrap the yaw angle for smooth controls
+        self.yaw_measured_unwrapped_head = 0.0
+        self.yaw_measured_unwrapped_imu  = 0.0
 
         # Prediction interval (seconds)
-        self.dt = 0.1
-        # Flag & origin for ENU conversion
-        self.initialized = False
-        self.ref_lat = self.ref_lon = 0.0
+        self.dt = 1.0/_pred_freq
 
-        # -- ROS interfaces ----------------------------------------------------
+        # Noise models
+        self.Q = np.diag(_Q)
+        self.R_fix  = np.diag(_R_fix)
+        self.R_head = np.diag(_R_head)
+        self.R_vel  = np.diag(_R_vel)
+        self.R_imu  = np.diag(_R_imu)
+        
+        """
+        State vector: 
+        Vector with estimated states of the ReVolt ship, like position and velocity
+         - x     (east)             (m)
+         - y     (north)            (m)
+         - yaw   (angle)            (rad)
+         - v     (forward speed)    (m/s)
+         - w_yaw (angular velocity) (rad/s)
+
+        Measurement vector:
+        Since different sensors give measurements at different rates we must chose measurement vector as the biggest sensor data vector
+        In our case that is the IMU with 3 data points, thus dim_z = 3
+        """
+        self.ekf = ExtendedKalmanFilter(
+            f=self.revolt_model.f,
+            h=h_fix,
+            dim_x=5,
+            dim_z=3,
+            dt=self.dt,
+            Q=self.Q,
+            R=self.R_fix,
+        )
+        
+        # ROS2 Startup ----------
+        # Subscribers for control signal
+        self.u = np.zeros(2) # [effort ((-100.0) - 0.0 - 100.0), angle ((-pi) - 0.0 - pi)]
+        self.u_effort_sub = self.create_subscription(Float64, '/tau_m',     self.u_effort_cb, 1)
+        self.u_angle_sub  = self.create_subscription(Float64, '/tau_delta', self.u_angle_cb,  1)
+
         # Subscribers for sensors
-        self.fix_sub  = self.create_subscription(NavSatFix,  '/fix', self.fix_cb, 10)
-        self.head_sub = self.create_subscription(Float64,    '/heading', self.heading_cb, 10)
-        self.imu_sub  = self.create_subscription(Imu,        '/imu/data', self.imu_cb, 10)
+        self.fix_sub  = self.create_subscription(NavSatFix,         '/fix',      self.update_fix,     1)
+        self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
+        self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
+        self.imu_sub  = self.create_subscription(Imu,               '/imu/data', self.update_imu,     1)
+
+        # TF
+        self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         # Timer triggers predict() at fixed rate
         self.timer = self.create_timer(self.dt, self.predict)
 
-        # TF broadcaster for map→base_link
-        self.broadcaster = tf2_ros.TransformBroadcaster(self)
         # Publisher for state as Odometry message
         self.state_pub = self.create_publisher(Odometry, 'ekf/state', 10)
 
+        # Debugging ----------
+        self.get_logger().info(
+            f"                                       \n" \
+            f"ReVolt Model Params:                   \n" \
+            f" m:            {_m}                    \n" \
+            f" r:            {_dimensions[0]}        \n" \
+            f" l:            {_dimensions[1]}        \n" \
+            f" thruster_pos: {_thruster_placement}   \n" \
+            f" v_lin_max:    {_velocity_linear_max}  \n" \
+            f" v_ang_max:    {_velocity_angular_max} \n" \
+            f"                                       \n" \
+        )
+        self.get_logger().info(
+            f"                                   \n" \
+            f"EKF Parameters:                    \n" \
+            f" Q:                   {self.Q}     \n" \
+            f" R_fix:               {self.R_fix} \n" \
+            f" R_head:              {self.R_head}\n" \
+            f" R_imu:               {self.R_imu} \n" \
+            f" Prediction interval: {self.dt}    \n" \
+            f"                                   \n" \
+        )
+        self.get_logger().info("EKF waiting for first GNSS '/fix' position topic before predictions...")
+    # Initialize EKF system (STOP) ==================================================
+
+
+
+    # Control signal callback functions (START) ==================================================
+    def u_effort_cb(self, msg: Float64):
+        self.u[0] = msg.data
+
+    def u_angle_cb(self, msg: Float64):
+        self.u[1] = msg.data
+    # Control signal callback functions (STOP) ==================================================
+
+
+
+    # EKF callback functions (START) ==================================================
     def predict(self):
-        """Perform EKF predict step and broadcast TF + odometry."""
         if not self.initialized:
             return
+        
+        # 1) Run EKF predict step with current control u
+        x_pred, P_pred = self.ekf.predict(self.u)
 
-        x, y, psi, v = self.ekf.x  # unpack state
-        # State transition Jacobian F for constant-velocity motion
-        F = np.eye(4)
-        F[0,2] = -v * np.sin(psi) * self.dt
-        F[0,3] =  np.cos(psi) * self.dt
-        F[1,2] =  v * np.cos(psi) * self.dt
-        F[1,3] =  np.sin(psi) * self.dt
-
-        self.ekf.F = F
-        self.ekf.predict()
-
-        # -- Broadcast TF -----------------------------------------------------
+        # 2) Broadcast map → base_link TF
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'map'
         t.child_frame_id = 'base_link'
-        t.transform.translation.x = float(self.ekf.x[0])
-        t.transform.translation.y = float(self.ekf.x[1])
-        # convert yaw to quaternion
-        q = tf_transformations.quaternion_from_euler(0, 0, float(self.ekf.x[2]))
-        (t.transform.rotation.x,
-         t.transform.rotation.y,
-         t.transform.rotation.z,
-         t.transform.rotation.w) = q
-        self.broadcaster.sendTransform(t)
+        t.transform.translation.x = float(x_pred[0])
+        t.transform.translation.y = float(x_pred[1])
+        t.transform.translation.z = 0.0
+        # yaw → quaternion
+        q = tf_transformations.quaternion_from_euler(0, 0, float(x_pred[2]))
+        t.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+        self._tf_broadcaster.sendTransform(t)
 
-        # -- Publish Odometry ------------------------------------------------
+        # 3) Publish ekf/state as Odometry
         odom = Odometry()
         odom.header.stamp = t.header.stamp
-        odom.header.frame_id = 'map'
-        odom.child_frame_id = 'base_link'
-        odom.pose.pose.position.x = float(self.ekf.x[0])
-        odom.pose.pose.position.y = float(self.ekf.x[1])
-        odom.pose.pose.orientation.x = q[0]
-        odom.pose.pose.orientation.y = q[1]
-        odom.pose.pose.orientation.z = q[2]
-        odom.pose.pose.orientation.w = q[3]
+        odom.header.frame_id    = 'map'
+        odom.child_frame_id     = 'base_link'
+        odom.pose.pose.position.x    = float(x_pred[0])
+        odom.pose.pose.position.y    = float(x_pred[1])
+        odom.pose.pose.position.z    = 0.0
+        odom.pose.pose.orientation   = t.transform.rotation
+
         # forward speed and yaw rate
-        odom.twist.twist.linear.x  = float(self.ekf.x[3])
-        # yaw-rate stored from last IMU callback
-        odom.twist.twist.angular.z = getattr(self, 'last_yaw_rate', 0.0)
+        odom.twist.twist.linear.x   = float(x_pred[3])
+        odom.twist.twist.linear.y   = 0.0
+        odom.twist.twist.linear.z   = 0.0
+        odom.twist.twist.angular.x  = 0.0
+        odom.twist.twist.angular.y  = 0.0
+        odom.twist.twist.angular.z  = float(x_pred[4])
+
         self.state_pub.publish(odom)
 
-    def fix_cb(self, msg: NavSatFix):
-        """GNSS position update. Initialize or fuse east/north."""
+        # Debugging ----------
+        #self.get_logger().info(f"x_pred: {x_pred}   |   P_pred: {P_pred}")
+
+    def update_fix(self, msg: NavSatFix):
         if not self.initialized:
             # set ENU origin
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
             self.initialized = True
-            self.get_logger().info('EKF initialized at first GNSS fix')
+            self.get_logger().info("EKF initialized at first GNSS /fix position topic")
+            self.get_logger().info("EKF starting predictions :)")
             return
 
-        # Convert geodetic → ENU relative to origin
+        # 1) convert to ENU measurement (east, north, up), ignore up
         e, n, _ = pm.geodetic2enu(
-            msg.latitude, msg.longitude, msg.altitude,
+            msg.latitude, msg.longitude, 0.0,
             self.ref_lat, self.ref_lon, 0.0
         )
+
+        # 2) configure EKF measurement model & noise
+        self.ekf.h = h_fix
+        self.ekf.R = self.R_fix
+
+        # 3) Perform the correction step
         z = np.array([e, n])
-        H = np.array([[1, 0, 0, 0],
-                      [0, 1, 0, 0]])
-        # update() needs functions for Jacobian and measurement model
-        self.ekf.update(
-            z,
-            HJacobian=lambda x: H,
-            Hx=lambda x: x[:2],
-            R=self.R_fix
-        )
+        x_post, P_post = self.ekf.update(z)
 
-    def heading_cb(self, msg: Float64):
-        """GNSS heading update. Fuse yaw angle."""
+        # Debugging ----------
+        #self.get_logger().info(f"Fix update → z=[{e:.2f}, {n:.2f}], x_post={x_post}")
+
+    def update_heading(self, msg: QuaternionStamped):
         if not self.initialized:
             return
-        z = np.array([msg.data])
-        H = np.array([[0, 0, 1, 0]])
-        self.ekf.update(
-            z,
-            HJacobian=lambda x: H,
-            Hx=lambda x: np.array([x[2]]),
-            R=self.R_head
-        )
+        
+        # 1) Extract yaw angle from the incoming quaternion
+        qx = msg.quaternion.x
+        qy = msg.quaternion.y
+        qz = msg.quaternion.z
+        qw = msg.quaternion.w
+        _, _, yaw_measured = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
+        # unwrap it against the last one
+        self.yaw_measured_unwrapped_head = unwrap(self.yaw_measured_unwrapped_head, yaw_measured)
 
-    def imu_cb(self, msg: Imu):
-        """IMU update. Fuse forward accel and yaw rate."""
+        # 2) configure EKF measurement model & noise
+        self.ekf.h = h_head
+        self.ekf.R = self.R_head
+
+        # 3) Perform the correction step
+        z = np.array([self.yaw_measured_unwrapped_head])
+        x_post, P_post = self.ekf.update(z)
+
+        # Debugging ----------
+        #self.get_logger().info(f"Heading update → z=[{self.yaw_measured_unwrapped:.3f}], x_post={x_post}")
+        
+    def update_vel(self, msg: TwistStamped):
         if not self.initialized:
             return
-        # store yaw rate for odometry
-        self.last_yaw_rate = msg.angular_velocity.z
 
-        # project accel into ship frame
-        psi = self.ekf.x[2]
-        ax, ay = msg.linear_acceleration.x, msg.linear_acceleration.y
-        a_fwd = ax * np.cos(psi) + ay * np.sin(psi)
-        z = np.array([a_fwd, self.last_yaw_rate])
+        # 1) extract GNSS‐reported velocity in world frame
+        vx = msg.twist.linear.x
+        vy = msg.twist.linear.y
+        wz = msg.twist.angular.z
 
-        # only yaw rate maps directly (accel is indirect)
-        H = np.zeros((2, 4))
-        H[1,2] = 1.0 / self.dt
-        def hx(x): return np.array([0.0, x[2] / self.dt])
+        # 2) configure EKF measurement model & noise
+        self.ekf.h = h_vel
+        self.ekf.R = self.R_vel
 
-        self.ekf.update(
-            z,
-            HJacobian=lambda x: H,
-            Hx=hx,
-            R=self.R_imu
+        # 3) Perform the correction step
+        z = np.array([vx, vy, wz])
+        x_post, P_post = self.ekf.update(z)
+
+        # Debugging ----------
+        #self.get_logger().info(f"Vel update → z=[{vx:.3f}, {vy:.3f}, {wz:.3f}], x_post={x_post}")
+        
+    def update_imu(self, msg: Imu):
+        if not self.initialized:
+            return
+        
+        # 1) Extract yaw from the IMU orientation quaternion
+        q = (
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
         )
+        _, _, yaw_measured = tf_transformations.euler_from_quaternion(q)
+        w_yaw_measured = msg.angular_velocity.z
+        # unwrap yaw against the last one
+        self.yaw_measured_unwrapped_imu = unwrap(self.yaw_measured_unwrapped_imu, yaw_measured)
 
+        # 2) configure EKF measurement model & noise
+        self.ekf.h = h_imu
+        self.ekf.R = self.R_imu
+
+        # 3) Perform the correction step
+        z = np.array([self.yaw_measured_unwrapped_imu, w_yaw_measured])
+        x_post, P_post = self.ekf.update(z)
+
+        # Debugging ----------
+        self.get_logger().info(f"IMU update → z=[yaw:{self.yaw_measured_unwrapped_imu:.3f}, w:{w_yaw_measured:.3f}], x_post={x_post}")
+    # EKF callback functions (STOP) ==================================================
 
 def main():
     rclpy.init()
