@@ -14,7 +14,6 @@ def unwrap(prev_yaw, new_yaw):
         delta += 2*np.pi
     return prev_yaw + delta
 
-
 class HeadingAligner:
     """
     One-shot IMU↔GNSS yaw offset calibrator.

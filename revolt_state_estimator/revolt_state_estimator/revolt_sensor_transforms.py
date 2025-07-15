@@ -52,12 +52,7 @@ def h_imu(x: np.ndarray) -> np.ndarray:
     State x = [x_e, y_n, yaw, v, w_yaw]
 
     Returns z = [yaw, w_yaw]
-    """
-    
-    #!!! Note: We do NOT use IMU linear_acceleration in this simple EKF sensor transform
-    #!!! Note: I simply didn't have time for that, so no dead reckoning is implemented
-    #!!! Note: Either, as long as one has GNSS data this should not be an issue
-    
+    """    
     # yaw from orientation (we assume quaternion→yaw done upstream)
     yaw   = x[2]
     # yaw rate directly

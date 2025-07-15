@@ -6,7 +6,10 @@ ROS2 node that runs an Extended Kalman Filter for a simple ship model.
 Fuses:
  - GNSS position (/fix)
  - GNSS heading (/heading)
- - IMU forward acceleration & yaw rate (/imu/data)
+ - GNSS velocity (/vel)
+ - IMU linear acceleration & yaw rate (/imu/data)
+ imu/dq	geometry_msgs/QuaternionStamped	integrated angular velocity from sensor (in quaternion representation)	1-400Hz(MTi-600 and MTi-100 series), 1-100Hz(MTi-1 series)
+imu/dv	geometry_msgs/Vector3Stamped	
 Publishes:
  - map → base_link TF
  - ekf/state Odometry (x, y, yaw, v, yaw_rate)
@@ -136,6 +139,11 @@ class RevoltEKF(Node):
         self.state_pub = self.create_publisher(Odometry, 'ekf/state', 10)
 
         # Debugging ----------
+        np.set_printoptions(
+            linewidth=200, 
+            precision=6, # adjust as you like
+            suppress=True # so small floats don’t go to scientific notation
+        )  
         self.get_logger().info(
             f"                                       \n" \
             f"ReVolt Model Params:                   \n" \
@@ -150,7 +158,8 @@ class RevoltEKF(Node):
         self.get_logger().info(
             f"                                   \n" \
             f"EKF Parameters:                    \n" \
-            f" Q:                   {self.Q}     \n" \
+            f" Q:                                \n" \
+            f" {self.Q}                          \n" \
             f" R_fix:               {self.R_fix} \n" \
             f" R_head:              {self.R_head}\n" \
             f" R_imu:               {self.R_imu} \n" \
@@ -164,9 +173,17 @@ class RevoltEKF(Node):
 
     # Control signal callback functions (START) ==================================================
     def u_effort_cb(self, msg: Float64):
+        # Ensure the value we get is NOT NaN
+        if np.isnan(msg.data):
+            return
+        
         self.u[0] = msg.data
 
     def u_angle_cb(self, msg: Float64):
+        # Ensure the value we get is NOT NaN
+        if np.isnan(msg.data):
+            return
+        
         self.u[1] = msg.data
     # Control signal callback functions (STOP) ==================================================
 
@@ -214,9 +231,14 @@ class RevoltEKF(Node):
         self.state_pub.publish(odom)
 
         # Debugging ----------
-        #self.get_logger().info(f"x_pred: {x_pred}   |   P_pred: {P_pred}")
+        self.get_logger().info(f"x_pred: {x_pred}")
+        #self.get_logger().info(f"P_pred: {P_pred}")
 
     def update_fix(self, msg: NavSatFix):
+        # Ensure the value we get is NOT NaN
+        if np.isnan(msg.latitude) or np.isnan(msg.longitude):
+            return
+
         if not self.initialized:
             # set ENU origin
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
@@ -243,6 +265,15 @@ class RevoltEKF(Node):
         #self.get_logger().info(f"Fix update → z=[{e:.2f}, {n:.2f}], x_post={x_post}")
 
     def update_heading(self, msg: QuaternionStamped):
+        # Ensure the value we get is NOT NaN
+        if (
+            np.isnan(msg.quaternion.x) or 
+            np.isnan(msg.quaternion.y) or
+            np.isnan(msg.quaternion.z) or
+            np.isnan(msg.quaternion.w)
+            ):
+            return
+        
         if not self.initialized:
             return
 
@@ -272,6 +303,14 @@ class RevoltEKF(Node):
         #self.get_logger().info(f"Heading update → z=[{gnss_yaw:.3f}], x_post={x_post}")
 
     def update_vel(self, msg: TwistStamped):
+        # Ensure the value we get is NOT NaN
+        if (
+            np.isnan(msg.twist.linear.x) or 
+            np.isnan(msg.twist.linear.y) or
+            np.isnan(msg.twist.angular.z)
+            ):
+            return
+        
         if not self.initialized:
             return
 
@@ -292,13 +331,22 @@ class RevoltEKF(Node):
         #self.get_logger().info(f"Vel update → z=[{vx:.3f}, {vy:.3f}, {wz:.3f}], x_post={x_post}")
         
     def update_imu(self, msg: Imu):
+        # Ensure the value we get is NOT NaN
+        if (
+            np.isnan(msg.orientation.x) or 
+            np.isnan(msg.orientation.y) or
+            np.isnan(msg.orientation.z) or
+            np.isnan(msg.orientation.w) or
+            np.isnan(msg.angular_velocity.z)
+            ):
+            return
+        
         if not self.initialized:
             return
 
         # 1) unwrap IMU yaw
         q = msg.orientation
-        _, _, raw_imu = tf_transformations.euler_from_quaternion(
-            [q.x, q.y, q.z, q.w])
+        _, _, raw_imu = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
         imu_yaw = unwrap(self.yaw_unwrap_imu, raw_imu)
         self.yaw_unwrap_imu = imu_yaw
         self.last_imu_yaw   = imu_yaw # Updating this, signals to heading realignment that we got IMU heading, wait for GNSS data

@@ -101,6 +101,7 @@ class ExtendedKalmanFilter:
         Predict step: discrete Euler + covariance update.
         u: control vector
         """
+
         # a) state propagation (Euler forward)
         self.x_prior = euler_forward(self.f, self.x_post, u, self.dt)
 
