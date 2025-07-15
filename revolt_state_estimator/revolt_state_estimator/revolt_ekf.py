@@ -17,9 +17,9 @@ Publishes:
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import NavSatFix, Imu
+from sensor_msgs.msg import NavSatFix, Imu, MagneticField
 from std_msgs.msg import Float64
-from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped
+from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped, Vector3Stamped
 from nav_msgs.msg import Odometry
 import tf_transformations
 import tf2_ros
@@ -27,7 +27,7 @@ import numpy as np
 import pymap3d as pm
 
 from revolt_state_estimator.revolt_model import ReVoltModel
-from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
+from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu, h_dv
 from revolt_state_estimator.ekf import ExtendedKalmanFilter
 from revolt_state_estimator.utils import unwrap, HeadingAligner
 
@@ -40,10 +40,10 @@ class RevoltEKF(Node):
         super().__init__('revolt_ekf')
 
         # Ship Model Parameters
-        self.declare_parameter('revolt_model.m', 0.0) # mass [kg]
-        self.declare_parameter('revolt_model.dimensions', [0.0, 0.0]) # [radius (m), length (m)]
-        self.declare_parameter('revolt_model.thruster_placement', [0.0, 0.0]) # [x,y] in body frame [m]
-        self.declare_parameter('revolt_model.velocity_linear_max', 0.0) # max forward speed [m/s]
+        self.declare_parameter('revolt_model.m',                    0.0) # mass [kg]
+        self.declare_parameter('revolt_model.dimensions',          [0.0, 0.0]) # [radius (m), length (m)]
+        self.declare_parameter('revolt_model.thruster_placement',  [0.0, 0.0]) # [x,y] in body frame [m]
+        self.declare_parameter('revolt_model.velocity_linear_max',  0.0) # max forward speed [m/s]
         self.declare_parameter('revolt_model.velocity_angular_max', 0.0) # max yaw rate [rad/s]
         _m                    = self.get_parameter('revolt_model.m').value
         _dimensions           = self.get_parameter('revolt_model.dimensions').value
@@ -52,17 +52,19 @@ class RevoltEKF(Node):
         _velocity_angular_max = self.get_parameter('revolt_model.velocity_angular_max').value
 
         # EKF Parameters
-        self.declare_parameter('revolt_ekf.Q',        [0.0]*5) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_fix',    [0.0, 0.0]) # [x (m), y (m)]
-        self.declare_parameter('revolt_ekf.R_head',   [0.0]) # [yaw (rad)]
-        self.declare_parameter('revolt_ekf.R_vel',    [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_imu',    [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.Q',      [0.0]*5) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_fix',  [0.0, 0.0]) # [x (m), y (m)]
+        self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
+        self.declare_parameter('revolt_ekf.R_vel',  [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_imu',  [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_dv',   [0.0, 0.0]) # [v_x (m/s), v_y (m/s)]
         self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
         _Q         = self.get_parameter('revolt_ekf.Q').value
         _R_fix     = self.get_parameter('revolt_ekf.R_fix').value
         _R_head    = self.get_parameter('revolt_ekf.R_head').value
         _R_vel     = self.get_parameter('revolt_ekf.R_vel').value
         _R_imu     = self.get_parameter('revolt_ekf.R_imu').value
+        _R_dv      = self.get_parameter('revolt_ekf.R_dv').value
         _pred_freq = self.get_parameter('revolt_ekf.pred_freq').value
 
         # ReVolt ship model setup ----------
@@ -98,6 +100,7 @@ class RevoltEKF(Node):
         self.R_head = np.diag(_R_head)
         self.R_vel  = np.diag(_R_vel)
         self.R_imu  = np.diag(_R_imu)
+        self.R_dv   = np.diag(_R_dv)
         
         """
         State vector: 
@@ -127,10 +130,13 @@ class RevoltEKF(Node):
         self.u_effort_sub = self.create_subscription(Float64, '/tau_m',     self.u_effort_cb, 1)
         self.u_angle_sub  = self.create_subscription(Float64, '/tau_delta', self.u_angle_cb,  1)
         # Sensor data subscribers
+        # GNSS
         self.fix_sub  = self.create_subscription(NavSatFix,         '/fix',      self.update_fix,     1)
         self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
         self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
-        self.imu_sub  = self.create_subscription(Imu,               '/imu/data', self.update_imu,     1)
+        # IMU
+        self.imu_sub = self.create_subscription(Imu,             '/imu/data', self.update_imu, 1)
+        self.dv_sub  = self.create_subscription(Vector3Stamped,  '/imu/dv',   self.update_dv,  1) # IMU Has internal method to track velocity with NO drift from what data sheet says (sus stuff, might be marketing but who knows is good stuff either way jesjes)
         # TF broadcaster
         self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # Timer for predict()
@@ -231,7 +237,7 @@ class RevoltEKF(Node):
         self.state_pub.publish(odom)
 
         # Debugging ----------
-        self.get_logger().info(f"x_pred: {x_pred}")
+        #self.get_logger().info(f"x_pred: {x_pred}")
         #self.get_logger().info(f"P_pred: {P_pred}")
 
     def update_fix(self, msg: NavSatFix):
@@ -371,6 +377,22 @@ class RevoltEKF(Node):
 
         # Debugging ----------
         #self.get_logger().info(f"IMU update → z=[yaw:{aligned_imu:.3f}, w:{w_imu:.3f}], x_post={x_post}")
+
+    def update_dv(self, msg: Vector3Stamped):
+        dvx, dvy, dvz = msg.vector.x, msg.vector.y, msg.vector.z
+        if np.isnan(dvx) or np.isnan(dvy) or np.isnan(dvz):
+            return
+        if not self.initialized:
+            return
+
+        self.ekf.h = h_dv
+        self.ekf.R = self.R_dv
+
+        z = np.array([dvx, dvy])
+        x_post, P_post = self.ekf.update(z)
+
+        # Debugging ----------
+        self.get_logger().info(f"dv update → z=[{dvx:.3f},{dvy:.3f}], x_post={x_post}")
     # EKF callback functions (STOP) ==================================================
 
 def main():

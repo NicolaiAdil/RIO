@@ -9,6 +9,7 @@
       R_head: [0.05] # [yaw (rad)]
       R_vel:  [0.3, 0.3, 0.3] # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
       R_imu:  [0.1, 0.1] # [yaw (rad), w_yaw (rad/s)]
+      R_dv:   [1.5, 1.5] # [v_x (m/s), v_y (m/s)]
 
       # Frequency at which how many times to predict per second
       pred_freq: 50.0 # Hz 

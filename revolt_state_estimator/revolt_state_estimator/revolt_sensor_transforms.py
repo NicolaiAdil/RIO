@@ -59,3 +59,16 @@ def h_imu(x: np.ndarray) -> np.ndarray:
     w_yaw = x[4]
 
     return np.array([yaw, w_yaw])
+
+def h_dv(x: np.ndarray) -> np.ndarray:
+    """
+    Integrated‐acceleration (dv) model: we approximate the velocity
+    vector in ENU as the integral of accel, which here we take
+    simply as the body‐fixed speed projected to world:
+      dvx = v * cos(yaw)
+      dvy = v * sin(yaw)
+    """
+    yaw, v = x[2], x[3]
+    dvx = v * np.cos(yaw)
+    dvy = v * np.sin(yaw)
+    return np.array([dvx, dvy])
