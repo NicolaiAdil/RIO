@@ -26,7 +26,8 @@ import pymap3d as pm
 from revolt_state_estimator.revolt_model import ReVoltModel
 from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
 from revolt_state_estimator.ekf import ExtendedKalmanFilter
-from revolt_state_estimator.utils import unwrap
+from revolt_state_estimator.utils import unwrap, HeadingAligner
+
 
 
 class RevoltEKF(Node):
@@ -41,24 +42,24 @@ class RevoltEKF(Node):
         self.declare_parameter('revolt_model.thruster_placement', [0.0, 0.0]) # [x,y] in body frame [m]
         self.declare_parameter('revolt_model.velocity_linear_max', 0.0) # max forward speed [m/s]
         self.declare_parameter('revolt_model.velocity_angular_max', 0.0) # max yaw rate [rad/s]
-        _m = self.get_parameter('revolt_model.m').value
-        _dimensions = self.get_parameter('revolt_model.dimensions').value
-        _thruster_placement = self.get_parameter('revolt_model.thruster_placement').value
-        _velocity_linear_max = self.get_parameter('revolt_model.velocity_linear_max').value
+        _m                    = self.get_parameter('revolt_model.m').value
+        _dimensions           = self.get_parameter('revolt_model.dimensions').value
+        _thruster_placement   = self.get_parameter('revolt_model.thruster_placement').value
+        _velocity_linear_max  = self.get_parameter('revolt_model.velocity_linear_max').value
         _velocity_angular_max = self.get_parameter('revolt_model.velocity_angular_max').value
 
         # EKF Parameters
-        self.declare_parameter('revolt_ekf.Q', [0.0, 0.0, 0.0, 0.0, 0.0]) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_fix', [0.0, 0.0]) # [x (m), y (m)]
-        self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
-        self.declare_parameter('revolt_ekf.R_vel', [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_imu', [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.Q',        [0.0]*5) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_fix',    [0.0, 0.0]) # [x (m), y (m)]
+        self.declare_parameter('revolt_ekf.R_head',   [0.0]) # [yaw (rad)]
+        self.declare_parameter('revolt_ekf.R_vel',    [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.R_imu',    [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
         self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
-        _Q = self.get_parameter('revolt_ekf.Q').value
-        _R_fix = self.get_parameter('revolt_ekf.R_fix').value
-        _R_head = self.get_parameter('revolt_ekf.R_head').value
-        _R_vel = self.get_parameter('revolt_ekf.R_vel').value
-        _R_imu = self.get_parameter('revolt_ekf.R_imu').value
+        _Q         = self.get_parameter('revolt_ekf.Q').value
+        _R_fix     = self.get_parameter('revolt_ekf.R_fix').value
+        _R_head    = self.get_parameter('revolt_ekf.R_head').value
+        _R_vel     = self.get_parameter('revolt_ekf.R_vel').value
+        _R_imu     = self.get_parameter('revolt_ekf.R_imu').value
         _pred_freq = self.get_parameter('revolt_ekf.pred_freq').value
 
         # ReVolt ship model setup ----------
@@ -72,15 +73,21 @@ class RevoltEKF(Node):
         )
 
         # EKF Setup ----------
-        # Ensures that we dont start estimating until EKF gets its first GNSS update
-        self.initialized = False
+        # EKF Initialization variables
+        self.initialized = False           # don’t run EKF until first GNSS fix arrives
+        self.u           = np.zeros(2)     # control input [effort, angle]
+        self.dt          = 1.0/_pred_freq  # prediction timestep
 
-        # Since we use Quaternion based EKF, but the controllers are in euler angles, we must remember to unwrap the yaw angle for smooth controls
+        # Unwrapped yaw states for heading continuity
         self.yaw_measured_unwrapped_head = 0.0
         self.yaw_measured_unwrapped_imu  = 0.0
 
-        # Prediction interval (seconds)
-        self.dt = 1.0/_pred_freq
+        # One-shot IMU↔GNSS yaw alignment
+        self.heading_aligner = HeadingAligner()  # will compute constant yaw offset
+        self.yaw_unwrap_head = 0.0               # last unwrapped GNSS yaw
+        self.yaw_unwrap_imu  = 0.0               # last unwrapped IMU yaw
+        self.last_imu_yaw    = None              # store most recent IMU yaw
+        self.last_gnss_yaw   = None              # store most recent GNSS yaw
 
         # Noise models
         self.Q = np.diag(_Q)
@@ -112,25 +119,20 @@ class RevoltEKF(Node):
             R=self.R_fix,
         )
         
-        # ROS2 Startup ----------
-        # Subscribers for control signal
-        self.u = np.zeros(2) # [effort ((-100.0) - 0.0 - 100.0), angle ((-pi) - 0.0 - pi)]
+        # ROS2 Interfaces Setup ----------
+        # Control signal subscribers
         self.u_effort_sub = self.create_subscription(Float64, '/tau_m',     self.u_effort_cb, 1)
         self.u_angle_sub  = self.create_subscription(Float64, '/tau_delta', self.u_angle_cb,  1)
-
-        # Subscribers for sensors
+        # Sensor data subscribers
         self.fix_sub  = self.create_subscription(NavSatFix,         '/fix',      self.update_fix,     1)
         self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
         self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
         self.imu_sub  = self.create_subscription(Imu,               '/imu/data', self.update_imu,     1)
-
-        # TF
+        # TF broadcaster
         self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
-
-        # Timer triggers predict() at fixed rate
+        # Timer for predict()
         self.timer = self.create_timer(self.dt, self.predict)
-
-        # Publisher for state as Odometry message
+        # State publisher
         self.state_pub = self.create_publisher(Odometry, 'ekf/state', 10)
 
         # Debugging ----------
@@ -219,8 +221,8 @@ class RevoltEKF(Node):
             # set ENU origin
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
             self.initialized = True
-            self.get_logger().info("EKF initialized at first GNSS /fix position topic")
-            self.get_logger().info("EKF starting predictions :)")
+            self.get_logger().info("EKF initialized at first GNSS '/fix' position topic")
+            self.get_logger().info("EKF now waiting for '/heading' and '/imu/data' topics for heading alignment")
             return
 
         # 1) convert to ENU measurement (east, north, up), ignore up
@@ -243,27 +245,32 @@ class RevoltEKF(Node):
     def update_heading(self, msg: QuaternionStamped):
         if not self.initialized:
             return
-        
-        # 1) Extract yaw angle from the incoming quaternion
-        qx = msg.quaternion.x
-        qy = msg.quaternion.y
-        qz = msg.quaternion.z
-        qw = msg.quaternion.w
-        _, _, yaw_measured = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
-        # unwrap it against the last one
-        self.yaw_measured_unwrapped_head = unwrap(self.yaw_measured_unwrapped_head, yaw_measured)
 
-        # 2) configure EKF measurement model & noise
+        # 1) unwrap GNSS yaw
+        q = msg.quaternion
+        _, _, raw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        gnss_yaw = unwrap(self.yaw_unwrap_head, raw_gnss)
+        self.yaw_unwrap_head = gnss_yaw
+        self.last_gnss_yaw = gnss_yaw # Updating this, signals to heading realignment that we got GNSS heading, wait for IMU data
+
+        # 2) try to calibrate if we also have IMU
+        if ((self.last_imu_yaw is not None) and (not self.heading_aligner.is_calibrated())):
+            self.heading_aligner.add_sample(self.last_imu_yaw, gnss_yaw)
+            self.get_logger().info("EKF Aligned '/heading'")
+
+        # 3) if not yet calibrated, bail
+        if not self.heading_aligner.is_calibrated():
+            return
+
+        # 4) EKF‐correct with raw GNSS in world‐frame
+        z = np.array([gnss_yaw])
         self.ekf.h = h_head
         self.ekf.R = self.R_head
-
-        # 3) Perform the correction step
-        z = np.array([self.yaw_measured_unwrapped_head])
         x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        #self.get_logger().info(f"Heading update → z=[{self.yaw_measured_unwrapped:.3f}], x_post={x_post}")
-        
+        #self.get_logger().info(f"Heading update → z=[{gnss_yaw:.3f}], x_post={x_post}")
+
     def update_vel(self, msg: TwistStamped):
         if not self.initialized:
             return
@@ -287,29 +294,35 @@ class RevoltEKF(Node):
     def update_imu(self, msg: Imu):
         if not self.initialized:
             return
-        
-        # 1) Extract yaw from the IMU orientation quaternion
-        q = (
-            msg.orientation.x,
-            msg.orientation.y,
-            msg.orientation.z,
-            msg.orientation.w
-        )
-        _, _, yaw_measured = tf_transformations.euler_from_quaternion(q)
-        w_yaw_measured = msg.angular_velocity.z
-        # unwrap yaw against the last one
-        self.yaw_measured_unwrapped_imu = unwrap(self.yaw_measured_unwrapped_imu, yaw_measured)
 
-        # 2) configure EKF measurement model & noise
+        # 1) unwrap IMU yaw
+        q = msg.orientation
+        _, _, raw_imu = tf_transformations.euler_from_quaternion(
+            [q.x, q.y, q.z, q.w])
+        imu_yaw = unwrap(self.yaw_unwrap_imu, raw_imu)
+        self.yaw_unwrap_imu = imu_yaw
+        self.last_imu_yaw   = imu_yaw # Updating this, signals to heading realignment that we got IMU heading, wait for GNSS data
+
+        # 2) calibrate if we’ve seen GNSS already
+        if ((self.last_gnss_yaw is not None) and (not self.heading_aligner.is_calibrated())):
+            self.heading_aligner.add_sample(imu_yaw, self.last_gnss_yaw)
+            self.get_logger().info("EKF Aligned '/imu/data'")
+
+        # 3) only correct once calibrated
+        if not self.heading_aligner.is_calibrated():
+            return
+
+        # 4) align IMU into GNSS frame and EKF‐correct
+        aligned_imu = self.heading_aligner.align_imu(imu_yaw)
+        w_imu = msg.angular_velocity.z
+
+        z = np.array([aligned_imu, w_imu])
         self.ekf.h = h_imu
         self.ekf.R = self.R_imu
-
-        # 3) Perform the correction step
-        z = np.array([self.yaw_measured_unwrapped_imu, w_yaw_measured])
         x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        self.get_logger().info(f"IMU update → z=[yaw:{self.yaw_measured_unwrapped_imu:.3f}, w:{w_yaw_measured:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"IMU update → z=[yaw:{aligned_imu:.3f}, w:{w_imu:.3f}], x_post={x_post}")
     # EKF callback functions (STOP) ==================================================
 
 def main():
