@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-revolt_ekf.py
+NOTE: REquires custom_msgs that can be found in another repo called ReVoltMsgs
+src/ SensorFusion
+src/ ReVoltMsgs
+then build and source, should be good then :)
 
 ROS2 node that runs an Extended Kalman Filter for a simple ship model.
 Fuses:
@@ -8,8 +11,8 @@ Fuses:
  - GNSS heading (/heading)
  - GNSS velocity (/vel)
  - IMU linear acceleration & yaw rate (/imu/data)
- imu/dq	geometry_msgs/QuaternionStamped	integrated angular velocity from sensor (in quaternion representation)	1-400Hz(MTi-600 and MTi-100 series), 1-100Hz(MTi-1 series)
-imu/dv	geometry_msgs/Vector3Stamped	
+ - (/imu/dv) geometry_msgs/Vector3Stamped integrated linear velocity from sensor (in vector representation) 1-400Hz(MTi-600 and MTi-100 series), 1-100Hz(MTi-1 series)
+
 Publishes:
  - map → base_link TF
  - ekf/state Odometry (x, y, yaw, v, yaw_rate)
@@ -17,10 +20,10 @@ Publishes:
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import NavSatFix, Imu, MagneticField
+from custom_msgs.msg import StateEstimate
+from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64
 from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped, Vector3Stamped
-from nav_msgs.msg import Odometry
 import tf_transformations
 import tf2_ros
 import numpy as np
@@ -60,7 +63,7 @@ class RevoltEKF(Node):
         self.declare_parameter('revolt_ekf.R_dv',   [0.0, 0.0]) # [v_x (m/s), v_y (m/s)]
         self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
         _Q         = self.get_parameter('revolt_ekf.Q').value
-        _R_fix     = self.get_parameter('revolt_ekf.R_fix').value
+        _R_fix     = self.get_parameter('revolt_ekf.R_fix').value # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         _R_head    = self.get_parameter('revolt_ekf.R_head').value
         _R_vel     = self.get_parameter('revolt_ekf.R_vel').value
         _R_imu     = self.get_parameter('revolt_ekf.R_imu').value
@@ -96,7 +99,7 @@ class RevoltEKF(Node):
 
         # Noise models
         self.Q = np.diag(_Q)
-        self.R_fix  = np.diag(_R_fix)
+        self.R_fix  = np.diag(_R_fix) # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_head = np.diag(_R_head)
         self.R_vel  = np.diag(_R_vel)
         self.R_imu  = np.diag(_R_imu)
@@ -138,11 +141,11 @@ class RevoltEKF(Node):
         self.imu_sub = self.create_subscription(Imu,             '/imu/data', self.update_imu, 1)
         self.dv_sub  = self.create_subscription(Vector3Stamped,  '/imu/dv',   self.update_dv,  1) # IMU Has internal method to track velocity with NO drift from what data sheet says (sus stuff, might be marketing but who knows is good stuff either way jesjes)
         # TF broadcaster
-        self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # Timer for predict()
         self.timer = self.create_timer(self.dt, self.predict)
         # State publisher
-        self.state_pub = self.create_publisher(Odometry, 'ekf/state', 10)
+        self.state_pub = self.create_publisher(StateEstimate, '/state_estimate/revolt', 10)
 
         # Debugging ----------
         np.set_printoptions(
@@ -214,27 +217,23 @@ class RevoltEKF(Node):
         # yaw → quaternion
         q = tf_transformations.quaternion_from_euler(0, 0, float(x_pred[2]))
         t.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
-        self._tf_broadcaster.sendTransform(t)
+        self.tf_broadcaster.sendTransform(t)
 
         # 3) Publish ekf/state as Odometry
-        odom = Odometry()
-        odom.header.stamp = t.header.stamp
-        odom.header.frame_id    = 'map'
-        odom.child_frame_id     = 'base_link'
-        odom.pose.pose.position.x    = float(x_pred[0])
-        odom.pose.pose.position.y    = float(x_pred[1])
-        odom.pose.pose.position.z    = 0.0
-        odom.pose.pose.orientation   = t.transform.rotation
+        state = StateEstimate()
+        state.header.stamp     = t.header.stamp
+        state.header.frame_id  = 'map'
+        state.child_frame_id   = 'base_link'
 
-        # forward speed and yaw rate
-        odom.twist.twist.linear.x   = float(x_pred[3])
-        odom.twist.twist.linear.y   = 0.0
-        odom.twist.twist.linear.z   = 0.0
-        odom.twist.twist.angular.x  = 0.0
-        odom.twist.twist.angular.y  = 0.0
-        odom.twist.twist.angular.z  = float(x_pred[4])
+        # extract from your state vector x_pred = [x, y, yaw, v, w]
+        state.x                = float(x_pred[0])  # world‐frame X
+        state.y                = float(x_pred[1])  # world‐frame Y
+        state.yaw              = float(x_pred[2])  # heading (rad)
 
-        self.state_pub.publish(odom)
+        state.linear_velocity  = float(x_pred[3])  # forward speed (m/s)
+        state.angular_velocity = float(x_pred[4])  # yaw rate   (rad/s)
+
+        self.state_pub.publish(state)
 
         # Debugging ----------
         #self.get_logger().info(f"x_pred: {x_pred}")
@@ -260,8 +259,14 @@ class RevoltEKF(Node):
         )
 
         # 2) configure EKF measurement model & noise
+        cov = msg.position_covariance
+        var_e = cov[0]  # latitude variance but because we're in ENU this maps to north; swap if needed
+        var_n = cov[4]  # longitude variance mapping to east
+        R_fix_msg = np.array([[var_e, 0.0],
+                          [0.0, var_n]])
+        #self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
+        self.ekf.R = R_fix_msg
         self.ekf.h = h_fix
-        self.ekf.R = self.R_fix
 
         # 3) Perform the correction step
         z = np.array([e, n])
@@ -317,6 +322,14 @@ class RevoltEKF(Node):
             ):
             return
         
+        # reject all‐zero bursts (bad data that sometimes comes up)
+        if (
+            msg.twist.linear.x  == 0.0 or 
+            msg.twist.linear.y  == 0.0 or 
+            msg.twist.angular.z == 0.0
+            ):
+            return
+    
         if not self.initialized:
             return
 
@@ -392,7 +405,7 @@ class RevoltEKF(Node):
         x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        self.get_logger().info(f"dv update → z=[{dvx:.3f},{dvy:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"dv update → z=[{dvx:.3f},{dvy:.3f}], x_post={x_post}")
     # EKF callback functions (STOP) ==================================================
 
 def main():
