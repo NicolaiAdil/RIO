@@ -2,7 +2,7 @@
   ros__parameters:
     revolt_ekf:
       # Process noise, The smaller the value, the more you trust your model
-      Q: [10.0, 10.0, 1.0, 5.0, 2.0] # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+      Q: [200.0, 200.0, 50.0, 20.0, 10.0] # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
       # R_fix:
@@ -18,18 +18,12 @@
       # R_vel:
       # σ_velocity_x   = 0.002361 [m/s]
       # σ_velocity_y   = 0.002684 [m/s]
-      # σ_velocity_yaw = 0.000001 [rad/s]
-      R_vel:  [0.3, 0.3, 0.3] # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
+      R_vel:  [0.3] # [v (m/s)]
 
       # R_imu:
       # σ_yaw           = 0.125189 [rad]
       # σ_velocity_yaw  = 0.002886 [rad/s]
-      R_imu:  [0.1, 0.1] # [yaw (rad), w_yaw (rad/s)]
-
-      # R_dv:
-      # σ_velocity_x = 0.001329 [m/s]
-      # σ_velocity_y = 0.001199 [m/s]
-      R_dv:   [1.5, 1.5] # [v_x (m/s), v_y (m/s)]
+      R_imu:  [0.1, 10.0, 0.1] # [yaw (rad), v (m/s), w_yaw (rad/s)]
 
       # Frequency at which how many times to predict per second
       pred_freq: 50.0 # Hz 

@@ -24,26 +24,11 @@ def h_head(x: np.ndarray) -> np.ndarray:
 
 def h_vel(x: np.ndarray) -> np.ndarray:
     """
-    GNSS velocity + yaw‐rate measurement model.
-
-    State x = [x_e, y_n, yaw, v, w_yaw]
-    returns z = [v_x_world, v_y_world, w_yaw]
-      v_x_world = v * cos(yaw)
-      v_y_world = v * sin(yaw)
-      w_yaw     = x[4]
+    GNSS velocity measurement model in body frame.
     """
-    # unpack
-    yaw   = x[2]
-    v     = x[3]
-    w_yaw = x[4]
+    v = x[3]
 
-    # project forward speed into world axes
-    c = np.cos(yaw)
-    s = np.sin(yaw)
-    v_x = v * c
-    v_y = v * s
-
-    return np.array([v_x, v_y, w_yaw])
+    return np.array([v])
 
 def h_imu(x: np.ndarray) -> np.ndarray:
     """
@@ -51,24 +36,13 @@ def h_imu(x: np.ndarray) -> np.ndarray:
 
     State x = [x_e, y_n, yaw, v, w_yaw]
 
-    Returns z = [yaw, w_yaw]
+    Returns z = [yaw, v, w_yaw]
     """    
     # yaw from orientation (we assume quaternion→yaw done upstream)
     yaw   = x[2]
+    # Linear velocity
+    v     = x[3]
     # yaw rate directly
     w_yaw = x[4]
 
-    return np.array([yaw, w_yaw])
-
-def h_dv(x: np.ndarray) -> np.ndarray:
-    """
-    Integrated‐acceleration (dv) model: we approximate the velocity
-    vector in ENU as the integral of accel, which here we take
-    simply as the body‐fixed speed projected to world:
-      dvx = v * cos(yaw)
-      dvy = v * sin(yaw)
-    """
-    yaw, v = x[2], x[3]
-    dvx = v * np.cos(yaw)
-    dvy = v * np.sin(yaw)
-    return np.array([dvx, dvy])
+    return np.array([yaw, v, w_yaw])

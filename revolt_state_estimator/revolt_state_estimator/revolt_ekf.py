@@ -23,14 +23,14 @@ from rclpy.node import Node
 from custom_msgs.msg import StateEstimate
 from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64
-from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped, Vector3Stamped
+from geometry_msgs.msg import TransformStamped, Quaternion, QuaternionStamped, TwistStamped
 import tf_transformations
 import tf2_ros
 import numpy as np
 import pymap3d as pm
 
 from revolt_state_estimator.revolt_model import ReVoltModel
-from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu, h_dv
+from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
 from revolt_state_estimator.ekf import ExtendedKalmanFilter
 from revolt_state_estimator.utils import unwrap, HeadingAligner
 
@@ -58,16 +58,14 @@ class RevoltEKF(Node):
         self.declare_parameter('revolt_ekf.Q',      [0.0]*5) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
         self.declare_parameter('revolt_ekf.R_fix',  [0.0, 0.0]) # [x (m), y (m)]
         self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
-        self.declare_parameter('revolt_ekf.R_vel',  [0.0, 0.0, 0.0]) # [v_x (m/s), v_y (m/s), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_imu',  [0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.R_dv',   [0.0, 0.0]) # [v_x (m/s), v_y (m/s)]
+        self.declare_parameter('revolt_ekf.R_vel',  [0.0]) # [v (m/s)]
+        self.declare_parameter('revolt_ekf.R_imu',  [0.0, 0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
         self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
         _Q         = self.get_parameter('revolt_ekf.Q').value
         _R_fix     = self.get_parameter('revolt_ekf.R_fix').value # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         _R_head    = self.get_parameter('revolt_ekf.R_head').value
         _R_vel     = self.get_parameter('revolt_ekf.R_vel').value
         _R_imu     = self.get_parameter('revolt_ekf.R_imu').value
-        _R_dv      = self.get_parameter('revolt_ekf.R_dv').value
         _pred_freq = self.get_parameter('revolt_ekf.pred_freq').value
 
         # ReVolt ship model setup ----------
@@ -97,13 +95,19 @@ class RevoltEKF(Node):
         self.last_imu_yaw    = None              # store most recent IMU yaw
         self.last_gnss_yaw   = None              # store most recent GNSS yaw
 
+        # IMU Integrates acceleration
+        # When we get new GNSS velocity measurement, we will reset the velocity IMU has to estimate
+        # If GNSS is away for to long, IMU can start dead reconing and then it is important to limit its speed
+        self.v_integrated = 0.0
+        self.imu_update_last = 0.0
+        self.imu_max_v = 5.0 # [m/s]
+
         # Noise models
         self.Q = np.diag(_Q)
         self.R_fix  = np.diag(_R_fix) # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_head = np.diag(_R_head)
         self.R_vel  = np.diag(_R_vel)
         self.R_imu  = np.diag(_R_imu)
-        self.R_dv   = np.diag(_R_dv)
         
         """
         State vector: 
@@ -138,8 +142,7 @@ class RevoltEKF(Node):
         self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
         self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
         # IMU
-        self.imu_sub = self.create_subscription(Imu,             '/imu/data', self.update_imu, 1)
-        self.dv_sub  = self.create_subscription(Vector3Stamped,  '/imu/dv',   self.update_dv,  1) # IMU Has internal method to track velocity with NO drift from what data sheet says (sus stuff, might be marketing but who knows is good stuff either way jesjes)
+        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.update_imu, 1)
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # Timer for predict()
@@ -322,11 +325,10 @@ class RevoltEKF(Node):
             ):
             return
         
-        # reject all‐zero bursts (bad data that sometimes comes up)
+        # reject all‐zero bursts (bad data that sometimes comes up from linear velocity)
         if (
             msg.twist.linear.x  == 0.0 or 
-            msg.twist.linear.y  == 0.0 or 
-            msg.twist.angular.z == 0.0
+            msg.twist.linear.y  == 0.0 
             ):
             return
     
@@ -336,18 +338,28 @@ class RevoltEKF(Node):
         # 1) extract GNSS‐reported velocity in world frame
         vx = msg.twist.linear.x
         vy = msg.twist.linear.y
-        wz = msg.twist.angular.z
+
+        # Transform vx and vy into body frame
+        # We will get v_body in world frame
+        # we want to have v_body in body frame and for that we could to transforms
+        # However I chose to do a janky solution, take abs() of the value because we know that ReVolt only moves forward jesjes 
+        yaw = self.ekf.x_prior[2]
+        v_body = vx*np.cos(yaw) + vy*np.sin(yaw)
+        v_abs  = abs(v_body)
 
         # 2) configure EKF measurement model & noise
         self.ekf.h = h_vel
         self.ekf.R = self.R_vel
 
         # 3) Perform the correction step
-        z = np.array([vx, vy, wz])
+        z = np.array([v_abs])
         x_post, P_post = self.ekf.update(z)
 
+        # 4) Update IMU integrated velocity so it doesn't drift that much  
+        self.v_integrated = x_post[3]
+
         # Debugging ----------
-        #self.get_logger().info(f"Vel update → z=[{vx:.3f}, {vy:.3f}, {wz:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"Vel update → z=[{v_abs:.3f}], x_post={x_post}")
         
     def update_imu(self, msg: Imu):
         # Ensure the value we get is NOT NaN
@@ -369,6 +381,25 @@ class RevoltEKF(Node):
         imu_yaw = unwrap(self.yaw_unwrap_imu, raw_imu)
         self.yaw_unwrap_imu = imu_yaw
         self.last_imu_yaw   = imu_yaw # Updating this, signals to heading realignment that we got IMU heading, wait for GNSS data
+        
+        # Integrate acceleration to get velocity, a lot of noise so drift, GNSS reset the drift
+        # however if GNSS fails, then we begin dead reconing
+        # To avoid to drastic jumps limit realistic velocity of the imu
+        # timestamp from message
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+
+        if not hasattr(self, 'imu_last_stamp') or self.imu_last_stamp is None:
+            self.imu_last_stamp = t
+            self.v_integrated = 0.0
+            return
+        
+        dt = t - self.imu_last_stamp
+        self.imu_last_stamp = t
+        self.v_integrated += msg.linear_acceleration.x * dt
+
+        if abs(self.v_integrated) > self.imu_max_v:
+            v_norm = self.v_integrated/abs(self.v_integrated)
+            self.v_integrated = v_norm * self.imu_max_v
 
         # 2) calibrate if we’ve seen GNSS already
         if ((self.last_gnss_yaw is not None) and (not self.heading_aligner.is_calibrated())):
@@ -383,29 +414,13 @@ class RevoltEKF(Node):
         aligned_imu = self.heading_aligner.align_imu(imu_yaw)
         w_imu = msg.angular_velocity.z
 
-        z = np.array([aligned_imu, w_imu])
+        z = np.array([aligned_imu, self.v_integrated, w_imu])
         self.ekf.h = h_imu
         self.ekf.R = self.R_imu
         x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        #self.get_logger().info(f"IMU update → z=[yaw:{aligned_imu:.3f}, w:{w_imu:.3f}], x_post={x_post}")
-
-    def update_dv(self, msg: Vector3Stamped):
-        dvx, dvy, dvz = msg.vector.x, msg.vector.y, msg.vector.z
-        if np.isnan(dvx) or np.isnan(dvy) or np.isnan(dvz):
-            return
-        if not self.initialized:
-            return
-
-        self.ekf.h = h_dv
-        self.ekf.R = self.R_dv
-
-        z = np.array([dvx, dvy])
-        x_post, P_post = self.ekf.update(z)
-
-        # Debugging ----------
-        #self.get_logger().info(f"dv update → z=[{dvx:.3f},{dvy:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"IMU update → z=[yaw:{aligned_imu:.3f}, v_integrated: {self.v_integrated:.3f} w:{w_imu:.3f}], x_post={x_post}")
     # EKF callback functions (STOP) ==================================================
 
 def main():
