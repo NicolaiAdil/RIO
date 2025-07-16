@@ -21,8 +21,9 @@
       R_vel:  [0.3] # [v (m/s)]
 
       # R_imu:
-      # σ_yaw           = 0.125189 [rad]
-      # σ_velocity_yaw  = 0.002886 [rad/s]
+      # σ_yaw            = 0.125189 [rad]
+      # σ_acceleration_x = 0.015577 [m/s²]
+      # σ_velocity_yaw   = 0.002886 [rad/s]
       R_imu:  [0.1, 10.0, 0.1] # [yaw (rad), v (m/s), w_yaw (rad/s)]
 
       # Frequency at which how many times to predict per second

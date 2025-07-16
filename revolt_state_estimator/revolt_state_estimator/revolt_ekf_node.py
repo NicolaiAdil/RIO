@@ -291,27 +291,27 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # 1) unwrap GNSS yaw
-        q = msg.quaternion
-        _, _, raw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        gnss_yaw = unwrap(self.yaw_unwrap_head, raw_gnss)
-        self.yaw_unwrap_head = gnss_yaw
-        self.last_gnss_yaw = gnss_yaw # Updating this, signals to heading realignment that we got GNSS heading, wait for IMU data
+        # # 1) unwrap GNSS yaw
+        # q = msg.quaternion
+        # _, _, raw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        # gnss_yaw = unwrap(self.yaw_unwrap_head, raw_gnss)
+        # self.yaw_unwrap_head = gnss_yaw
+        # self.last_gnss_yaw = gnss_yaw # Updating this, signals to heading realignment that we got GNSS heading, wait for IMU data
 
-        # 2) try to calibrate if we also have IMU
-        if ((self.last_imu_yaw is not None) and (not self.heading_aligner.is_calibrated())):
-            self.heading_aligner.add_sample(self.last_imu_yaw, gnss_yaw)
-            self.get_logger().info("EKF Aligned '/heading'")
+        # # 2) try to calibrate if we also have IMU
+        # if ((self.last_imu_yaw is not None) and (not self.heading_aligner.is_calibrated())):
+        #     self.heading_aligner.add_sample(self.last_imu_yaw, gnss_yaw)
+        #     self.get_logger().info("EKF Aligned '/heading'")
 
-        # 3) if not yet calibrated, bail
-        if not self.heading_aligner.is_calibrated():
-            return
+        # # 3) if not yet calibrated, bail
+        # if not self.heading_aligner.is_calibrated():
+        #     return
 
-        # 4) EKF‐correct with raw GNSS in world‐frame
-        z = np.array([gnss_yaw])
-        self.ekf.h = h_head
-        self.ekf.R = self.R_head
-        x_post, P_post = self.ekf.update(z)
+        # # 4) EKF‐correct with raw GNSS in world‐frame
+        # z = np.array([gnss_yaw])
+        # self.ekf.h = h_head
+        # self.ekf.R = self.R_head
+        # x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
         #self.get_logger().info(f"Heading update → z=[{gnss_yaw:.3f}], x_post={x_post}")

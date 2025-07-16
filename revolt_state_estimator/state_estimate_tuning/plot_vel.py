@@ -11,7 +11,6 @@ np.set_printoptions(suppress=True, precision=10)
 # ——— GROUND TRUTH VELOCITY ———
 gt_vx = 0.0   # [m/s]
 gt_vy = 0.0   # [m/s]
-gt_wz = 0.0   # [rad/s]
 
 # ——— LOAD & PREPROCESS ———
 cols = ['sec', 'nsec', 'frame_id', 'vx', 'vy', 'vz', 'wx', 'wy', 'wz']
@@ -26,10 +25,9 @@ df['time'] -= df['time'].iloc[0]
 data_dict = {
     'vx': (df['vx'].values, gt_vx, 'Forward Velocity (m/s)'),
     'vy': (df['vy'].values, gt_vy, 'Lateral Velocity (m/s)'),
-    'wz': (df['wz'].values, gt_wz, 'Yaw Rate (rad/s)')
 }
 
-fig, axes = plt.subplots(3, 1, figsize=(8, 10), constrained_layout=True)
+fig, axes = plt.subplots(2, 1, figsize=(8, 10), constrained_layout=True)
 
 for ax, key in zip(axes, data_dict):
     data, gt, label = data_dict[key]

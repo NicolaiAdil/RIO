@@ -18,8 +18,8 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='revolt_state_estimator',
-            executable='revolt_ekf',
-            name='revolt_ekf',
+            executable='revolt_ekf_node',
+            name='revolt_ekf_node',
             output='screen',
             parameters=[
                 config_path_ekf,
