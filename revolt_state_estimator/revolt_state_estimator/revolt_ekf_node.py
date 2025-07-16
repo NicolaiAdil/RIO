@@ -340,26 +340,22 @@ class RevoltEKF(Node):
         vy = msg.twist.linear.y
 
         # Transform vx and vy into body frame
-        # We will get v_body in world frame
-        # we want to have v_body in body frame and for that we could to transforms
-        # However I chose to do a janky solution, take abs() of the value because we know that ReVolt only moves forward jesjes 
         yaw = self.ekf.x_prior[2]
         v_body = vx*np.cos(yaw) + vy*np.sin(yaw)
-        v_abs  = abs(v_body)
 
         # 2) configure EKF measurement model & noise
         self.ekf.h = h_vel
         self.ekf.R = self.R_vel
 
         # 3) Perform the correction step
-        z = np.array([v_abs])
+        z = np.array([v_body])
         x_post, P_post = self.ekf.update(z)
 
         # 4) Update IMU integrated velocity so it doesn't drift that much  
         self.v_integrated = x_post[3]
 
         # Debugging ----------
-        #self.get_logger().info(f"Vel update → z=[{v_abs:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"Vel update → z=[{v_body:.3f}], x_post={x_post}")
         
     def update_imu(self, msg: Imu):
         # Ensure the value we get is NOT NaN
