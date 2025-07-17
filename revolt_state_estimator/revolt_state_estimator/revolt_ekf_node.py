@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """
-NOTE: REquires custom_msgs that can be found in another repo called ReVoltMsgs
-src/ SensorFusion
-src/ ReVoltMsgs
-then build and source, should be good then :)
-
 ROS2 node that runs an Extended Kalman Filter for a simple ship model.
 Fuses:
  - GNSS position (/fix)
  - GNSS heading (/heading)
  - GNSS velocity (/vel)
- - IMU linear acceleration & yaw rate (/imu/data)
- - (/imu/dv) geometry_msgs/Vector3Stamped integrated linear velocity from sensor (in vector representation) 1-400Hz(MTi-600 and MTi-100 series), 1-100Hz(MTi-1 series)
-
+ - IMU data (/imu/data) 
+    + yaw
+    + yaw rate
+    + linear velocity (integrated from linear acceleration) 
 Publishes:
  - world → body TF
  - ekf/state Odometry (x, y, yaw, v, yaw_rate)

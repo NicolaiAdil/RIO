@@ -1,2 +1,2 @@
 # Harwdare Launch
-The main launch file to launch rest of the hardware systems. Insteda of launching 10 different launch files in their own terminals, just launch this simple launch file and everything will be taken care for you :)
+The main launch file to launch rest of the Sensor Fusion systems. Instead of launching 10 different launch files in their own terminals, just launch this simple launch file and everything will be taken care for you :)
