@@ -1,0 +1,8 @@
+/**:
+  ros__parameters:
+    revolt_model:
+      m: 200.0                         # mass [kg]
+      dimensions: [0.3, 3.0]           # [radius (m), length (m)]
+      thruster_placement: [0.0, -1.2]  # [x,y] in body frame [m]
+      velocity_linear_max: 3.0         # max forward speed [m/s]
+      velocity_angular_max: 0.5        # max yaw rate [rad/s]

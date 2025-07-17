@@ -1,0 +1,30 @@
+/**:
+  ros__parameters:
+    revolt_ekf:
+      # Process noise, The smaller the value, the more you trust your model
+      Q: [100.0, 100.0, 50.0, 20.0, 1.0] # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+
+      # Measurement noise, the smaller the value, the more you trust your measurements
+      # R_fix:
+      # σ_east  = 0.0000196888 [m]
+      # σ_north = 0.0000196888 [m]
+      # !!! NOTE: This R_fix is not in use anymore, because the GNSS sensor has a inbuilt dynamic covariance matrix, which we are using instead. That GNSS dynamic covariance matrix is superior. It can be found in the /fix topic itself :)
+      R_fix:  [0.1, 0.1] # [x (m), y (m)]
+
+      # R_head:
+      # σ_heading = 0.074655 [rad]
+      R_head: [0.05] # [yaw (rad)]
+
+      # R_vel:
+      # σ_velocity_x   = 0.002361 [m/s]
+      # σ_velocity_y   = 0.002684 [m/s]
+      R_vel:  [0.3] # [v (m/s)]
+
+      # R_imu:
+      # σ_yaw            = 0.125189 [rad]
+      # σ_acceleration_x = 0.015577 [m/s²]
+      # σ_velocity_yaw   = 0.002886 [rad/s]
+      R_imu:  [0.1, 10.0, 0.1] # [yaw (rad), v (m/s), w_yaw (rad/s)]
+
+      # Frequency at which how many times to predict per second
+      pred_freq: 50.0 # Hz 

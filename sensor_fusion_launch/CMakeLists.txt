@@ -1,6 +1,0 @@
-# Only launchfiles in this package -> no dependencies (other than catkin)
-cmake_minimum_required(VERSION 2.8.3)
-project(sensor_fusion_launch)
-find_package(catkin REQUIRED)
-catkin_package()
-include_directories()
