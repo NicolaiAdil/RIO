@@ -32,7 +32,7 @@ import pymap3d as pm
 from revolt_state_estimator.revolt_model import ReVoltModel
 from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
 from revolt_state_estimator.ekf import ExtendedKalmanFilter
-from revolt_state_estimator.utils import unwrap, HeadingAligner
+from revolt_state_estimator.utils import unwrap
 
 
 
@@ -88,7 +88,7 @@ class RevoltEKF(Node):
         self.yaw_measured_unwrapped_head = 0.0
         self.yaw_measured_unwrapped_imu  = 0.0
 
-        # One-shot IMU↔GNSS yaw alignment
+        # One-shot IMU↔GNSS yaw alignment, 
         self.gnss_yaw_offset = None
         self.gnss_yaw_last   = 0.0
         
@@ -251,8 +251,8 @@ class RevoltEKF(Node):
             # set ENU origin
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
             self.initialized = True
-            self.get_logger().info("EKF initialized at first GNSS '/fix' position topic")
-            self.get_logger().info("EKF now waiting for '/heading' and '/imu/data' topics for heading alignment")
+            self.get_logger().info("EKF initialized at first GNSS position")
+            self.get_logger().info("EKF now waiting for GNSS and IMU heading alignment")
             return
 
         # 1) convert to ENU measurement (east, north, up), ignore up
@@ -300,6 +300,7 @@ class RevoltEKF(Node):
         if self.gnss_yaw_offset is None:
             self.gnss_yaw_offset = raw_gnss - self.ekf.x_post[2]
             self.gnss_yaw_last = raw_gnss
+            self.get_logger().info("EKF Aligned GNSS heading")
             return
 
         gnss_yaw = unwrap(self.gnss_yaw_last, raw_gnss) # Unwrap so we don't get sharp edges
@@ -379,6 +380,7 @@ class RevoltEKF(Node):
         if self.imu_yaw_offset is None:
             self.imu_yaw_offset = raw_imu - self.ekf.x_post[2]
             self.imu_yaw_last = raw_imu
+            self.get_logger().info("EKF Aligned IMU heading")
             return
 
         imu_yaw = unwrap(self.imu_yaw_last, raw_imu) # Unwrap so we don't get sharp edges

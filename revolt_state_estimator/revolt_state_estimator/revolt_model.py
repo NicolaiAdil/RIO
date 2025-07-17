@@ -17,7 +17,7 @@ class ReVoltModel:
         # drag & thrust gains (tweak these)
         self.k_thr = 4.0       # N per unit effort
         self.cd    = 0.001     # linear drag coeff
-        self.cyaw  = 0.1       # yaw drag coeff
+        self.cyaw  = 0.2       # yaw drag coeff
         self.A     = (2*r)*l   # frontal area [m²]
         self.rho   = 1000.0    # water density
 
