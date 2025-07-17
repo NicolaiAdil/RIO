@@ -14,7 +14,7 @@ Fuses:
  - (/imu/dv) geometry_msgs/Vector3Stamped integrated linear velocity from sensor (in vector representation) 1-400Hz(MTi-600 and MTi-100 series), 1-100Hz(MTi-1 series)
 
 Publishes:
- - map → base_link TF
+ - world → body TF
  - ekf/state Odometry (x, y, yaw, v, yaw_rate)
 """
 
@@ -209,11 +209,11 @@ class RevoltEKF(Node):
         # 1) Run EKF predict step with current control u
         x_pred, P_pred = self.ekf.predict(self.u)
 
-        # 2) Broadcast map → base_link TF
+        # 2) Broadcast world → body TF
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'map'
-        t.child_frame_id = 'base_link'
+        t.header.frame_id = 'world'
+        t.child_frame_id = 'body'
         t.transform.translation.x = float(x_pred[0])
         t.transform.translation.y = float(x_pred[1])
         t.transform.translation.z = 0.0
@@ -225,8 +225,8 @@ class RevoltEKF(Node):
         # 3) Publish ekf/state as Odometry
         state = StateEstimate()
         state.header.stamp     = t.header.stamp
-        state.header.frame_id  = 'map'
-        state.child_frame_id   = 'base_link'
+        state.header.frame_id  = 'world'
+        state.child_frame_id   = 'body'
 
         # extract from your state vector x_pred = [x, y, yaw, v, w]
         state.x                = float(x_pred[0])  # world‐frame X
