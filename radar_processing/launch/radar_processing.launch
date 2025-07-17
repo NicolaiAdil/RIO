@@ -1,8 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-    <!-- Data processing nodes -->
-    <node name="radarSpokesToPoints"   pkg="radar_processing" type="RadarSpokesToPointsNode"   output="screen" />
-    <node name="radarPointsToClusters" pkg="radar_processing" type="RadarPointsToClustersNode" output="screen" />
-    
-    <node pkg="tf2_ros" type="static_transform_publisher" name="body_radar_broadcaster" args="0.7 0 -0.57 0 0 3.1415 body radar"/>
-</launch>
