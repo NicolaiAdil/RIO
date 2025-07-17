@@ -89,11 +89,11 @@ class RevoltEKF(Node):
         self.yaw_measured_unwrapped_imu  = 0.0
 
         # One-shot IMU↔GNSS yaw alignment
-        self.heading_aligner = HeadingAligner()  # will compute constant yaw offset
-        self.yaw_unwrap_head = 0.0               # last unwrapped GNSS yaw
-        self.yaw_unwrap_imu  = 0.0               # last unwrapped IMU yaw
-        self.last_imu_yaw    = None              # store most recent IMU yaw
-        self.last_gnss_yaw   = None              # store most recent GNSS yaw
+        self.gnss_yaw_offset = None
+        self.gnss_yaw_last   = 0.0
+        
+        self.imu_yaw_offset  = None
+        self.imu_yaw_last    = 0.0
 
         # IMU Integrates acceleration
         # When we get new GNSS velocity measurement, we will reset the velocity IMU has to estimate
@@ -291,30 +291,29 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # # 1) unwrap GNSS yaw
-        # q = msg.quaternion
-        # _, _, raw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        # gnss_yaw = unwrap(self.yaw_unwrap_head, raw_gnss)
-        # self.yaw_unwrap_head = gnss_yaw
-        # self.last_gnss_yaw = gnss_yaw # Updating this, signals to heading realignment that we got GNSS heading, wait for IMU data
+        # 1) Get GNSS yaw
+        q = msg.quaternion
+        _, _, raw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        # # 2) try to calibrate if we also have IMU
-        # if ((self.last_imu_yaw is not None) and (not self.heading_aligner.is_calibrated())):
-        #     self.heading_aligner.add_sample(self.last_imu_yaw, gnss_yaw)
-        #     self.get_logger().info("EKF Aligned '/heading'")
+        # If first time we must find what the IMU start position is and add that as offset
+        # This ensures the prediction yaw angle and the IMU yaw angle start at the same place
+        if self.gnss_yaw_offset is None:
+            self.gnss_yaw_offset = raw_gnss - self.ekf.x_post[2]
+            self.gnss_yaw_last = raw_gnss
+            return
 
-        # # 3) if not yet calibrated, bail
-        # if not self.heading_aligner.is_calibrated():
-        #     return
+        gnss_yaw = unwrap(self.gnss_yaw_last, raw_gnss) # Unwrap so we don't get sharp edges
+        self.gnss_yaw_last = gnss_yaw
+        gnss_yaw_offset = self.imu_yaw_offset - gnss_yaw
 
-        # # 4) EKF‐correct with raw GNSS in world‐frame
-        # z = np.array([gnss_yaw])
-        # self.ekf.h = h_head
-        # self.ekf.R = self.R_head
-        # x_post, P_post = self.ekf.update(z)
+        # 4) EKF‐correct with raw GNSS in world‐frame
+        z = np.array([gnss_yaw_offset])
+        self.ekf.h = h_head
+        self.ekf.R = self.R_head
+        x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        #self.get_logger().info(f"Heading update → z=[{gnss_yaw:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"Heading update → z=[{gnss_yaw_offset:.3f}], x_post={x_post}")
 
     def update_vel(self, msg: TwistStamped):
         # Ensure the value we get is NOT NaN
@@ -371,13 +370,22 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # 1) unwrap IMU yaw
+        # 1) Get IMU yaw
         q = msg.orientation
         _, _, raw_imu = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        imu_yaw = unwrap(self.yaw_unwrap_imu, raw_imu)
-        self.yaw_unwrap_imu = imu_yaw
-        self.last_imu_yaw   = imu_yaw # Updating this, signals to heading realignment that we got IMU heading, wait for GNSS data
-        
+
+        # If first time we must find what the IMU start position is and add that as offset
+        # This ensures the prediction yaw angle and the IMU yaw angle start at the same place
+        if self.imu_yaw_offset is None:
+            self.imu_yaw_offset = raw_imu - self.ekf.x_post[2]
+            self.imu_yaw_last = raw_imu
+            return
+
+        imu_yaw = unwrap(self.imu_yaw_last, raw_imu) # Unwrap so we don't get sharp edges
+        self.imu_yaw_last = imu_yaw
+        imu_yaw_offset = self.imu_yaw_offset - imu_yaw
+
+        # 2) Get IMU acceleration and integrate into velocity
         # Integrate acceleration to get velocity, a lot of noise so drift, GNSS reset the drift
         # however if GNSS fails, then we begin dead reconing
         # To avoid to drastic jumps limit realistic velocity of the imu
@@ -397,26 +405,17 @@ class RevoltEKF(Node):
             v_norm = self.v_integrated/abs(self.v_integrated)
             self.v_integrated = v_norm * self.imu_max_v
 
-        # 2) calibrate if we’ve seen GNSS already
-        if ((self.last_gnss_yaw is not None) and (not self.heading_aligner.is_calibrated())):
-            self.heading_aligner.add_sample(imu_yaw, self.last_gnss_yaw)
-            self.get_logger().info("EKF Aligned '/imu/data'")
-
-        # 3) only correct once calibrated
-        if not self.heading_aligner.is_calibrated():
-            return
-
-        # 4) align IMU into GNSS frame and EKF‐correct
-        aligned_imu = self.heading_aligner.align_imu(imu_yaw)
+        # 3) Get IMU angular velocity
         w_imu = msg.angular_velocity.z
 
-        z = np.array([aligned_imu, self.v_integrated, w_imu])
+        # 4) EKF Correct
+        z = np.array([imu_yaw_offset, self.v_integrated, w_imu])
         self.ekf.h = h_imu
         self.ekf.R = self.R_imu
         x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
-        #self.get_logger().info(f"IMU update → z=[yaw:{aligned_imu:.3f}, v_integrated: {self.v_integrated:.3f} w:{w_imu:.3f}], x_post={x_post}")
+        #self.get_logger().info(f"IMU update → z=[yaw:{imu_yaw_offset:.3f}, v_integrated: {self.v_integrated:.3f} w:{w_imu:.3f}], x_post={x_post}")
     # EKF callback functions (STOP) ==================================================
 
 def main():
