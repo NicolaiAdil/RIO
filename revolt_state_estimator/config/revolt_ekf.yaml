@@ -2,7 +2,7 @@
   ros__parameters:
     revolt_ekf:
       # Process noise, The smaller the value, the more you trust your model
-      Q: [100.0, 100.0, 50.0, 20.0, 1.0] # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+      Q: [100.0, 100.0, 50.0, 20.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0] # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
       # R_fix:

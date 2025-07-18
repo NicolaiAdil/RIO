@@ -8,12 +8,13 @@ import scipy
 # system discretization (ZOH), and predict/correct stages.
 # =============================================================================
 
+
 class ErrorState_ExtendedKalmanFilter:
     """
     Extended Kalman Filter with Euler predict + ZOH discretization + numerical Jacobians.
     """
 
-    def __init__(self, dt, Q, R, T_acc, T_ars):
+    def __init__(self, Q, R, T_acc, T_ars):
         """
         Error-state model:
         δx_dot = A(t)δx + E(t)w
@@ -29,7 +30,6 @@ class ErrorState_ExtendedKalmanFilter:
         dt : timestep
         """
         self.num_states = 15  # Number of states in the error state model
-        self.dt = dt
         self.num_states = self.num_states
         self.Q = Q
         self.R = R
@@ -45,7 +45,9 @@ class ErrorState_ExtendedKalmanFilter:
         # INS propagation state
         self.p_hat_ins = np.zeros(3)
         self.v_hat_ins = np.zeros(3)
+        self.b_acc_ins = np.zeros(3)  # Body frame accelerometer bias
         self.theta_hat_ins = np.zeros(3)  # Orientation in body frame
+        self.b_ars_ins = np.zeros(3)  # Body frame angular rate bias
 
         # Error states
         self.delta_x_hat = np.zeros(self.num_states)  # Also known as x_post
@@ -54,13 +56,10 @@ class ErrorState_ExtendedKalmanFilter:
         self.delta_x_hat_prior = np.zeros(self.num_states)
         self.P_hat_prior = np.eye(self.num_states)
 
-    def predict(self):
+    def predict(self, Ad, Ed):
         """
         Predictor update step, based on Fossen 2nd eq. 14.206, 14.207
         """
-
-        # Discretization
-        Ad, Ed = np.eye(self.num_states) + self.A * self.dt, self.E * self.dt
 
         # Predict the error state prior
         # δx_hat_prior[k+1] = Ad[k] * δx_hat[k]
@@ -72,15 +71,18 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.delta_x_hat_prior, self.P_hat_prior
 
-    def correct(self, delta_x_hat_prior, z, C):
+    def correct(self, z, C):
         """
         Update step: measurement z.
         """
-        K = self.calculate_kalman_gain()
-        self.delta_x_hat = delta_x_hat_prior + K @ (z - C @ delta_x_hat_prior)
-        self.P_hat = (np.eye(self.num_states) - K @ C) @ self.P_hat_prior @ (
-            np.eye(self.num_states) - K @ C
-        ).T + K @ self.R @ K.T
+        Cd = C  # Measurement matrix
+
+        # KF gain: K[k]
+        K = self.calculate_kalman_gain(Cd)
+        IKC = np.eye(self.num_states) - K @ Cd
+
+        self.delta_x_hat = self.delta_x_hat_prior + K @ (z - Cd @ self.delta_x_hat_prior)
+        self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ self.R @ K.T
 
         return self.delta_x_hat, self.P_hat
 
@@ -93,7 +95,7 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.x_hat_ins
 
-    def ins_propagation(self, x_hat, R_bn, T_bn, f_imu_b, w_imu_b, g_n):
+    def ins_propagation(self, x_hat, dt, R_bn, T_bn, f_imu_b, w_imu_b, g_n):
         """
         Propagate the INS state estimate using the error state.
         """
@@ -101,30 +103,30 @@ class ErrorState_ExtendedKalmanFilter:
         b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
         # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
-        self.p_hat_ins = x_hat[:3] + self.dt * x_hat[3:6]  # position update
+        self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6]  # position update
 
         # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - 0) + g^n)
-        self.v_hat_ins = x_hat[3:6] + self.dt * (
+        self.v_hat_ins = x_hat[3:6] + dt * (
             R_bn @ (f_imu_b - b_acc_ins) + g_n
         )  # velocity update
 
         # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - 0) + g^n)
-        self.theta_hat_ins = x_hat[9:12] + self.dt * (
+        self.theta_hat_ins = x_hat[9:12] + dt * (
             T_bn @ (w_imu_b - b_ars_ins)
         )  # orientation update
 
         return self.p_hat_ins, self.v_hat_ins, self.theta_hat_ins
 
-    def calculate_kalman_gain(self):
+    def calculate_kalman_gain(self, Cd):
         """
         Compute the Kalman gain.
         """
         return (
             self.P_hat_prior
-            @ self.C.T
-            @ np.linalg.inv(self.C @ self.P_hat_prior @ self.C.T + self.R)
+            @ Cd.T
+            @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + self.R)
         )
-    
+
     def generate_A(self, R_bn, T_bn):
         """
         Generate the state transition matrix A.
@@ -133,21 +135,55 @@ class ErrorState_ExtendedKalmanFilter:
         O3 = np.zeros((3, 3))  # 3x3 zero matrix
         I3 = np.eye(3)  # 3x3 identity matrix
 
-        A = np.block([
-            [O3, I3, O3                , O3, O3              ], 
-            [O3, O3, -R_bn             , O3, O3              ],
-            [O3, O3, -1/self.T_acc * I3, O3, O3              ],
-            [O3, O3, O3                , O3, -T_bn           ],
-            [O3, O3, O3                , O3, -1/self.T_ars*I3]
-        ])
+        A = np.block(
+            [
+                [O3, I3, O3, O3, O3],
+                [O3, O3, -R_bn, O3, O3],
+                [O3, O3, -1 / self.T_acc * I3, O3, O3],
+                [O3, O3, O3, O3, -T_bn],
+                [O3, O3, O3, O3, -1 / self.T_ars * I3],
+            ]
+        )
 
-    def generate_E(self):
+        return A
+
+    def generate_E(self, R_bn, T_bn):
         """
         Generate the process noise matrix E.
+        Defined in Fossen 2nd, eq. 14.193.
         """
-        O3 = np.zeros((3, 3))
-    
+        O3 = np.zeros((3, 3))  # 3x3 zero matrix
+        I3 = np.eye(3)  # 3x3 identity matrix
+
+        E = np.block(
+            [
+                [O3, O3, O3, O3],
+                [-R_bn, O3, O3, O3],
+                [O3, I3, O3, O3],
+                [O3, O3, -T_bn, O3],
+                [O3, O3, O3, I3],
+            ]
+        )
+
+        return E
+
     def generate_C(self):
+        """
+        Generate the measurement matrix C.
+        Defined in Fossen 2nd, eq. 14.194.
+        """
+        O3 = np.zeros((3, 3))  # 3x3 zero matrix
+        I3 = np.eye(3)  # 3x3 identity matrix
+
+        C = np.block(
+            [
+                [I3, O3, O3, O3, O3],  # Position measurement
+                [O3, I3, O3, O3, O3],  # Velocity measurement
+                [O3, O3, O3, I3, O3],  # Orientation measurement
+            ]
+        )
+
+        return C
 
 
 def Rzyx(phi, theta, psi):
@@ -235,3 +271,62 @@ def Tzyx(phi, theta):
         ]
     )
     return T
+
+
+def ssa(angle, unit="rad"):
+    """
+    Smallest-Signed Angle: wrap angle to the interval
+      [-π, π) if unit=='rad' (default), or
+      [-180°, 180°) if unit=='deg'.
+
+    Parameters
+    ----------
+    angle : array_like or scalar
+        Input angle(s), in radians or degrees.
+    unit : {'rad', 'deg'}, optional
+        Unit of the input and output angle. Defaults to 'rad'.
+
+    Returns
+    -------
+    wrapped : ndarray or scalar
+        Angle(s) wrapped to the smallest signed representation.
+    """
+    angle = np.asarray(angle)
+
+    if unit == "rad":
+        wrapped = (angle + np.pi) % (2 * np.pi) - np.pi
+    elif unit == "deg":
+        wrapped = (angle + 180.0) % 360.0 - 180.0
+    else:
+        raise ValueError(f"Invalid unit '{unit}'. Must be 'rad' or 'deg'.")
+
+    # If input was a scalar, return a scalar
+    if np.isscalar(angle):
+        return wrapped.item()
+    return wrapped
+
+def gravity(lat):
+    """
+    g = gravity(latitude) computes the acceleration of gravity (m/s^2) as a function
+    of latitude lat (rad) using the WGS-84 ellipsoid parameters
+
+    Parameters
+    ----------
+    latitude : float
+        Latitude in degrees.
+
+    Returns
+    -------
+    g : float
+        Gravitational acceleration in m/s² (NED)
+    """
+    # Convert latitude to radians
+    lat_rad = np.radians(lat)
+
+    # Gravitational constant at sea level (m/s²)
+    g0 = 9.7803253359
+
+    # Gravity formula based on latitude
+    g = g0 * (1 + 0.001931850400 * np.sin(lat_rad)**2) / np.sqrt(1 - 0.006694384442 * np.sin(lat_rad)**2)
+
+    return g
