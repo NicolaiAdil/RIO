@@ -1,0 +1,2 @@
+pymap3d
+setuptools

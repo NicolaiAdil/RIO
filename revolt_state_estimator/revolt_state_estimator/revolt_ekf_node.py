@@ -27,7 +27,7 @@ import pymap3d as pm
 
 from revolt_state_estimator.revolt_model import ReVoltModel
 from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
-from revolt_state_estimator.ekf import ExtendedKalmanFilter
+from revolt_state_estimator.es_ekf import ErrorState_ExtendedKalmanFilter
 from revolt_state_estimator.utils import unwrap
 
 
@@ -75,6 +75,7 @@ class RevoltEKF(Node):
         )
 
         # EKF Setup ----------
+        self.new_measurement = False # flag to indicate if we have a new measurement
         # EKF Initialization variables
         self.initialized = False           # don’t run EKF until first GNSS fix arrives
         self.u           = np.zeros(2)     # control input [effort, angle]
@@ -105,27 +106,14 @@ class RevoltEKF(Node):
         self.R_vel  = np.diag(_R_vel)
         self.R_imu  = np.diag(_R_imu)
         
-        """
-        State vector: 
-        Vector with estimated states of the ReVolt ship, like position and velocity
-         - x     (east)             (m)
-         - y     (north)            (m)
-         - yaw   (angle)            (rad)
-         - v     (forward speed)    (m/s)
-         - w_yaw (angular velocity) (rad/s)
+        # Error-state Extended Kalman Filter setup
 
-        Measurement vector:
-        Since different sensors give measurements at different rates we must chose measurement vector as the biggest sensor data vector
-        In our case that is the IMU with 3 data points, thus dim_z = 3
-        """
-        self.ekf = ExtendedKalmanFilter(
-            f=self.revolt_model.f,
-            h=h_fix,
-            dim_x=5,
-            dim_z=3,
+        self.ekf = ErrorState_ExtendedKalmanFilter(
             dt=self.dt,
             Q=self.Q,
             R=self.R_fix,
+            T_acc = 1000 
+            T_ars = 500
         )
         
         # ROS2 Interfaces Setup ----------
@@ -142,7 +130,7 @@ class RevoltEKF(Node):
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # Timer for predict()
-        self.timer = self.create_timer(self.dt, self.predict)
+        self.timer = self.create_timer(self.dt, self.estimate_state)
         # State publisher
         self.state_pub = self.create_publisher(StateEstimate, '/state_estimate/revolt', 10)
 
@@ -152,17 +140,7 @@ class RevoltEKF(Node):
             precision=6, # adjust as you like
             suppress=True # so small floats don’t go to scientific notation
         )  
-        self.get_logger().info(
-            f"                                       \n" \
-            f"ReVolt Model Params:                   \n" \
-            f" m:            {_m}                    \n" \
-            f" r:            {_dimensions[0]}        \n" \
-            f" l:            {_dimensions[1]}        \n" \
-            f" thruster_pos: {_thruster_placement}   \n" \
-            f" v_lin_max:    {_velocity_linear_max}  \n" \
-            f" v_ang_max:    {_velocity_angular_max} \n" \
-            f"                                       \n" \
-        )
+
         self.get_logger().info(
             f"                                   \n" \
             f"EKF Parameters:                    \n" \
@@ -195,26 +173,18 @@ class RevoltEKF(Node):
         self.u[1] = msg.data
     # Control signal callback functions (STOP) ==================================================
 
-
-
-    # EKF callback functions (START) ==================================================
-    def predict(self):
-        if not self.initialized:
-            return
-        
-        # 1) Run EKF predict step with current control u
-        x_pred, P_pred = self.ekf.predict(self.u)
+    def _publish_state(self, x):
 
         # 2) Broadcast world → body TF
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp    = self.get_clock().now().to_msg()
         t.header.frame_id = 'world'
-        t.child_frame_id = 'body'
-        t.transform.translation.x = float(x_pred[0])
-        t.transform.translation.y = float(x_pred[1])
+        t.child_frame_id  = 'body'
+        t.transform.translation.x = float(x[0])
+        t.transform.translation.y = float(x[1])
         t.transform.translation.z = 0.0
         # yaw → quaternion
-        q = tf_transformations.quaternion_from_euler(0, 0, float(x_pred[2]))
+        q = tf_transformations.quaternion_from_euler(0, 0, float(x[2]))
         t.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         self.tf_broadcaster.sendTransform(t)
 
@@ -225,15 +195,34 @@ class RevoltEKF(Node):
         state.child_frame_id   = 'body'
 
         # extract from your state vector x_pred = [x, y, yaw, v, w]
-        state.x                = float(x_pred[0])  # world‐frame X
-        state.y                = float(x_pred[1])  # world‐frame Y
-        state.yaw              = float(x_pred[2])  # heading (rad)
+        state.x                = float(x[0])  # world‐frame X
+        state.y                = float(x[1])  # world‐frame Y
+        state.yaw              = float(x[2])  # heading (rad)
 
-        state.linear_velocity  = float(x_pred[3])  # forward speed (m/s)
-        state.angular_velocity = float(x_pred[4])  # yaw rate   (rad/s)
-
+        state.linear_velocity  = float(x[3])  # forward speed (m/s)
+        state.angular_velocity = float(x[4])  # yaw rate   (rad/s)
         self.state_pub.publish(state)
 
+    # EKF callback functions (START) ==================================================
+    def estimate_state(self):
+        if not self.initialized:
+            return
+        
+        # IMU measurements
+        x_prd, P_prd = self.ekf.predict(self.u)
+
+        if self.new_measurement:
+            # 2) If we have a new measurement, run correction step
+            x_hat, P_hat = self.ekf.update(self.ekf.z)
+        else:
+            # 3) If no new measurement, just use the predicted state
+            x_hat, P_hat = x_prd, P_prd
+
+        # 4) Update the EKF state estimates
+        self.ekf.x_post, self.ekf.P_post = x_hat, P_hat
+
+        self._publish_state(x_hat)
+        
         # Debugging ----------
         #self.get_logger().info(f"x_pred: {x_pred}")
         #self.get_logger().info(f"P_pred: {P_pred}")
@@ -269,7 +258,10 @@ class RevoltEKF(Node):
 
         # 3) Perform the correction step
         z = np.array([e, n])
-        x_post, P_post = self.ekf.update(z)
+        self.ekf.z = z
+        self.new_measurement = True
+
+        # x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
         #self.get_logger().info(f"Fix update → z=[{e:.2f}, {n:.2f}], x_post={x_post}")
@@ -307,7 +299,10 @@ class RevoltEKF(Node):
         z = np.array([gnss_yaw_offset])
         self.ekf.h = h_head
         self.ekf.R = self.R_head
-        x_post, P_post = self.ekf.update(z)
+        self.ekf.z = z
+        self.new_measurement = True
+
+        # x_post, P_post = self.ekf.update(z)
 
         # Debugging ----------
         #self.get_logger().info(f"Heading update → z=[{gnss_yaw_offset:.3f}], x_post={x_post}")
@@ -345,10 +340,11 @@ class RevoltEKF(Node):
 
         # 3) Perform the correction step
         z = np.array([v_body])
-        x_post, P_post = self.ekf.update(z)
+        self.ekf.z = z
+        # x_post, P_post = self.ekf.update(z)
 
         # 4) Update IMU integrated velocity so it doesn't drift that much  
-        self.v_integrated = x_post[3]
+        # self.v_integrated = x_post[3]
 
         # Debugging ----------
         #self.get_logger().info(f"Vel update → z=[{v_body:.3f}], x_post={x_post}")

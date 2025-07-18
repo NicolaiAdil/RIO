@@ -1,0 +1,2 @@
+[console_scripts]
+revolt_ekf = revolt_state_estimator.revolt_ekf:main

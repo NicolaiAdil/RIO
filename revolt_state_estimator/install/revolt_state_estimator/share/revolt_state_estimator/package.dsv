@@ -1,0 +1,6 @@
+source;share/revolt_state_estimator/hook/pythonpath.ps1
+source;share/revolt_state_estimator/hook/pythonpath.dsv
+source;share/revolt_state_estimator/hook/pythonpath.sh
+source;share/revolt_state_estimator/hook/ament_prefix_path.ps1
+source;share/revolt_state_estimator/hook/ament_prefix_path.dsv
+source;share/revolt_state_estimator/hook/ament_prefix_path.sh
