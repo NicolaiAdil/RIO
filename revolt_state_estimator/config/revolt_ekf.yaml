@@ -2,7 +2,9 @@
   ros__parameters:
     revolt_ekf:
       # Process noise, The smaller the value, the more you trust your model
-      Q: [100.0, 100.0, 50.0, 20.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0] # []
+      # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
+      # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
+      Q: [100.0, 100.0, 50.0, 20.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
       # R_fix:
@@ -20,11 +22,13 @@
       # σ_velocity_y   = 0.002684 [m/s]
       R_vel:  [0.3, 0.3, 0.3] # [v_x, v_y, v_z (m/s)]
 
-      # R_imu:
-      # σ_yaw            = 0.125189 [rad]
-      # σ_acceleration_x = 0.015577 [m/s²]
-      # σ_velocity_yaw   = 0.002886 [rad/s]
-      R_imu:  [0.1, 10.0, 0.1] # [yaw (rad), v (m/s), w_yaw (rad/s)] #NOT IN USE
+      # Time constants for the bias models, chosen based on the matlab example
+      T_acc: 1000.0 # Eq. 14.195 in Fossen 2nd edition
+      T_ars: 500.0 # 14.196 in Fossen 2nd edition
 
-      # Frequency at which how many times to predict per second
-      pred_freq: 50.0 # Hz 
+      # ROS2 PARAMETERS
+      state_estimate_topic: '/state_estimate/revolt'
+      imu_topic: '/imu/data'
+      fix_topic: '/fix'
+      heading_topic: '/heading'
+      velocity_topic: '/vel'

@@ -40,41 +40,34 @@ class RevoltEKF(Node):
         # ROS2 Node Setup ----------
         super().__init__('revolt_ekf')
 
-        # Ship Model Parameters
-        self.declare_parameter('revolt_model.m',                    0.0) # mass [kg]
-        self.declare_parameter('revolt_model.dimensions',          [0.0, 0.0]) # [radius (m), length (m)]
-        self.declare_parameter('revolt_model.thruster_placement',  [0.0, 0.0]) # [x,y] in body frame [m]
-        self.declare_parameter('revolt_model.velocity_linear_max',  0.0) # max forward speed [m/s]
-        self.declare_parameter('revolt_model.velocity_angular_max', 0.0) # max yaw rate [rad/s]
-        _m                    = self.get_parameter('revolt_model.m').value
-        _dimensions           = self.get_parameter('revolt_model.dimensions').value
-        _thruster_placement   = self.get_parameter('revolt_model.thruster_placement').value
-        _velocity_linear_max  = self.get_parameter('revolt_model.velocity_linear_max').value
-        _velocity_angular_max = self.get_parameter('revolt_model.velocity_angular_max').value
-
         # EKF Parameters
         self.declare_parameter('revolt_ekf.Q',      [0.0]*12) # []
-        self.declare_parameter('revolt_ekf.R_fix',  [0.0, 0.0]) # [x (m), y (m)]
+        self.declare_parameter('revolt_ekf.R_fix',  [0.0, 0.0, 0.0]) # [x (m), y (m), z (m)]
         self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
-        self.declare_parameter('revolt_ekf.R_vel',  [0.0]) # [v (m/s)]
-        self.declare_parameter('revolt_ekf.R_imu',  [0.0, 0.0, 0.0]) # [yaw (rad), w_yaw (rad/s)]
-        self.declare_parameter('revolt_ekf.pred_freq', 0.0) # Hz
+        self.declare_parameter('revolt_ekf.R_vel',  [0.0, 0.0, 0.0]) # [v_x, v_y, v_z (m/s)]
+        self.declare_parameter('revolt_ekf.T_acc', 1000.0) # Eq. 14.195 in Fossen 2nd edition
+        self.declare_parameter('revolt_ekf.T_ars', 500.0) # 14.196 in Fossen 2nd edition
         _Q         = self.get_parameter('revolt_ekf.Q').value
         _R_fix     = self.get_parameter('revolt_ekf.R_fix').value # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         _R_head    = self.get_parameter('revolt_ekf.R_head').value
         _R_vel     = self.get_parameter('revolt_ekf.R_vel').value
-        _R_imu     = self.get_parameter('revolt_ekf.R_imu').value
-        _pred_freq = self.get_parameter('revolt_ekf.pred_freq').value
+        _T_acc     = self.get_parameter('revolt_ekf.T_acc').value
+        _T_ars     = self.get_parameter('revolt_ekf.T_ars').value
 
-        # ReVolt ship model setup ----------
-        self.revolt_model = ReVoltModel(
-            m=_m,
-            r=_dimensions[0],
-            l=_dimensions[1],
-            thruster_pos=_thruster_placement,
-            v_lin_max=_velocity_linear_max,
-            v_ang_max=_velocity_angular_max,
-        )
+        # ROS 2 Parameters
+        # Publish topics
+        self.declare_parameter('revolt_ekf.state_estimate_topic', '/state_estimate/revolt')
+        # Subscribe topics
+        self.declare_parameter('revolt_ekf.imu_topic', '/imu/data')
+        self.declare_parameter('revolt_ekf.fix_topic', '/fix')
+        self.declare_parameter('revolt_ekf.heading_topic', '/heading')
+        self.declare_parameter('revolt_ekf.velocity_topic', '/vel')
+        _state_estimate_topic = self.get_parameter('revolt_ekf.state_estimate_topic').value
+        _imu_topic = self.get_parameter('revolt_ekf.imu_topic').value
+        _fix_topic = self.get_parameter('revolt_ekf.fix_topic').value
+        _heading_topic = self.get_parameter('revolt_ekf.heading_topic').value
+        _velocity_topic = self.get_parameter('revolt_ekf.velocity_topic').value
+    
 
         # EKF Setup ----------
         self.new_fix_measurement = False
@@ -84,33 +77,12 @@ class RevoltEKF(Node):
         # EKF Initialization variables
         self.initialized = False           # don’t run EKF until first GNSS fix arrives
         self.imu_last_stamp = None  # last IMU timestamp
-        self.u           = np.zeros(2)     # control input [effort, angle]
-        # self.dt          = 1.0/_pred_freq  # prediction timestep
-
-        # Unwrapped yaw states for heading continuity
-        self.yaw_measured_unwrapped_head = 0.0
-        self.yaw_measured_unwrapped_imu  = 0.0
-
-        # One-shot IMU↔GNSS yaw alignment, 
-        self.gnss_yaw_offset = None
-        self.gnss_yaw_last   = 0.0
-        
-        self.imu_yaw_offset  = None
-        self.imu_yaw_last    = 0.0
-
-        # IMU Integrates acceleration
-        # When we get new GNSS velocity measurement, we will reset the velocity IMU has to estimate
-        # If GNSS is away for to long, IMU can start dead reconing and then it is important to limit its speed
-        self.v_integrated = 0.0
-        self.imu_update_last = 0.0
-        self.imu_max_v = 5.0 # [m/s]
 
         # Noise models
         self.Q = np.diag(_Q)
-        self.R_fix  = np.diag(_R_fix) # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
+        self.R_fix  = np.diag(_R_fix) # NOTE: This is just a current guess. We will update it with the GNSS covariance matrix
         self.R_head = np.diag(_R_head)
         self.R_vel  = np.diag(_R_vel)
-        self.R_imu  = np.diag(_R_imu)
 
         # Latest measurements
         self.latest_fix = None
@@ -122,28 +94,22 @@ class RevoltEKF(Node):
         # Error-state Extended Kalman Filter setup
         self.es_ekf = ErrorState_ExtendedKalmanFilter(
             Q=self.Q,
-            R=self.R_fix,
-            T_acc = 1000,
-            T_ars = 500
+            T_acc = _T_acc,
+            T_ars = _T_ars
         )
         
         # ROS2 Interfaces Setup ----------
-        # Control signal subscribers
-        self.u_effort_sub = self.create_subscription(Float64, '/tau_m',     self.u_effort_cb, 1)
-        self.u_angle_sub  = self.create_subscription(Float64, '/tau_delta', self.u_angle_cb,  1)
         # Sensor data subscribers
         # GNSS
-        self.fix_sub  = self.create_subscription(NavSatFix,         '/fix',      self.update_fix,     1)
-        self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
-        self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
+        self.fix_sub  = self.create_subscription(NavSatFix,         _fix_topic,      self.update_fix,     1)
+        self.head_sub = self.create_subscription(QuaternionStamped, _heading_topic,  self.update_heading, 1)
+        self.vel_sub  = self.create_subscription(TwistStamped,      _velocity_topic,      self.update_vel,     1)
         # IMU
-        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.imu_callback, 1)
+        self.imu_sub = self.create_subscription(Imu, _imu_topic, self.imu_callback, 1)
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
-        # Timer for predict()
-        # self.timer = self.create_timer(self.dt, self.estimate_state)
         # State publisher
-        self.state_pub = self.create_publisher(StateEstimate, '/state_estimate/revolt', 10)
+        self.state_pub = self.create_publisher(StateEstimate, _state_estimate_topic, 10)
 
         # Debugging ----------
         np.set_printoptions(
@@ -157,31 +123,24 @@ class RevoltEKF(Node):
             f"EKF Parameters:                    \n" \
             f" Q:                                \n" \
             f" {self.Q}                          \n" \
-            f" R_fix:               {self.R_fix} \n" \
-            f" R_head:              {self.R_head}\n" \
-            f" R_imu:               {self.R_imu} \n" \
+            f" R_fix:                            \n" \
+            f" {self.R_fix}                      \n" \
+            f" R_head:                           \n" \
+            f" {self.R_head}                     \n" \
+            f" R_vel:                            \n" \
+            f" {self.R_vel}                      \n" \
+            f" T_acc: {_T_acc}               \n" \
+            f" T_ars: {_T_ars}               \n" \
+            f"                                   \n" \
+            f"State estimate topic: {_state_estimate_topic} \n" \
+            f"IMU topic: {_imu_topic} \n" \
+            f"GNSS fix topic: {_fix_topic} \n" \
+            f"GNSS heading topic: {_heading_topic} \n" \
+            f"GNSS velocity topic: {_velocity_topic} \n" \
             f"                                   \n" \
         )
         self.get_logger().info("EKF waiting for first GNSS '/fix' position topic before predictions...")
     # Initialize EKF system (STOP) ==================================================
-
-
-
-    # Control signal callback functions (START) ==================================================
-    def u_effort_cb(self, msg: Float64):
-        # Ensure the value we get is NOT NaN
-        if np.isnan(msg.data):
-            return
-        
-        self.u[0] = msg.data
-
-    def u_angle_cb(self, msg: Float64):
-        # Ensure the value we get is NOT NaN
-        if np.isnan(msg.data):
-            return
-        
-        self.u[1] = msg.data
-    # Control signal callback functions (STOP) ==================================================
 
     def _publish_state(self, x):
 
@@ -228,7 +187,7 @@ class RevoltEKF(Node):
         state.angular_velocity = float(self.latest_yaw_rate)  # yaw rate   (rad/s)
         self.state_pub.publish(state)
 
-    # EKF main loop
+    # EKF main loop. The ES-EKF runs at the frequency of the IMU.
     def imu_callback(self, msg: Imu):
         # Ensure the value we get is NOT NaN
         if (
@@ -369,8 +328,7 @@ class RevoltEKF(Node):
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
             self.latest_latitude = msg.latitude
             self.initialized = True
-            self.get_logger().info("EKF initialized at first GNSS position")
-            self.get_logger().info("EKF now waiting for GNSS and IMU heading alignment")
+            self.get_logger().info("ES-EKF successfully initialized at first GNSS position")
             return
 
         # Convert to ENU measurement (east, north, up), ignore up
