@@ -225,7 +225,7 @@ class RevoltEKF(Node):
         state.yaw              = float(yaw)  # heading (rad)
 
         state.linear_velocity  = float(linear_velocity)  # forward speed (m/s)
-        state.angular_velocity = self.latest_yaw_rate  # yaw rate   (rad/s)
+        state.angular_velocity = float(self.latest_yaw_rate)  # yaw rate   (rad/s)
         self.state_pub.publish(state)
 
     # EKF callback functions (START) ==================================================
@@ -252,13 +252,15 @@ class RevoltEKF(Node):
         f_vec = np.array([f_msg.x, f_msg.y, f_msg.z]).reshape(3, 1) 
         f_imu = f_vec - self.es_ekf.b_acc_ins                       
 
-        # Attitude rate
+        # Attitude rate (body frame)
         w_msg = msg.angular_velocity
         w_vec = np.array([w_msg.x, w_msg.y, w_msg.z]).reshape(3, 1)   
-        w_imu = w_vec - self.es_ekf.b_ars_ins   
-        # yaw rate
-        self.latest_yaw_rate = w_imu[2, 0]  # z component of angular velocity                   
+        w_imu = w_vec - self.es_ekf.b_ars_ins 
 
+        # This implementation does not estimate the attitude rate, so we use the IMU ARS directly.
+        self.latest_yaw_rate = w_imu[2, 0]       
+           
+        # Current time
         t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
         if not hasattr(self, 'imu_last_stamp') or self.imu_last_stamp is None:
@@ -268,25 +270,30 @@ class RevoltEKF(Node):
         dt = t - self.imu_last_stamp
         self.imu_last_stamp = t
 
-        R = Rzyx(roll_imu, pitch_imu, yaw_imu)  # Rotation matrix from body to navigation frame
-        T = Tzyx(roll_imu, pitch_imu)  # Transformation matrix from body to navigation frame
+        # Rotation and transformation matrices from body to NED
+        R = Rzyx(roll_imu, pitch_imu, yaw_imu)
+        T = Tzyx(roll_imu, pitch_imu)
 
-        A = self.es_ekf.generate_A(R, T)  # State transition matrix
-        Ad = np.eye(self.es_ekf.num_states) + A * dt
+        # System dynamics to implement the 15-state error-state model
+        # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
+        # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
+        A = self.es_ekf.generate_A(R, T)  # Eq. 14.192 in Fossen 2nd ed.
+        E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
 
-        E = self.es_ekf.generate_E(R, T)
+        # Discretization according to Fossen 2nd ed. Eq. 14.201
+        Ad = np.eye(self.es_ekf.num_states) + A * dt 
         Ed = E * dt
+
+        # Checking which aiding measurements we have
 
         O3 = np.zeros((3, 3))
         I3 = np.eye(3)
-
         zs, Cs, Rs = [], [], []
-
-        # GNSS position (first 3 states)
+        # GNSS position
         if self.new_fix_measurement:
             p_meas = self.latest_fix[:3].reshape(3,1)
             p_ins  = self.es_ekf.p_hat_ins
-            z_fix  = p_meas - p_ins                         
+            z_fix  = p_meas - p_ins # Calculate the position error                 
             C_fix = np.hstack([I3, O3, O3, O3, O3])
 
             zs.append( z_fix )
@@ -295,22 +302,22 @@ class RevoltEKF(Node):
 
             self.new_fix_measurement = False
 
-        # GNSS velocity (states 3–5)
+        # GNSS velocity
         if self.new_velocity_measurement:
             v_meas = self.latest_velocity[3:6].reshape(3,1) 
             v_ins  = self.es_ekf.v_hat_ins                   
-            z_vel  = v_meas - v_ins                        
+            z_vel  = v_meas - v_ins # Calculate the velocity error             
             C_vel  = np.hstack([O3, I3, O3, O3, O3])     
             zs.append( z_vel )
             Cs.append( C_vel )
             Rs.append( self.R_vel )
             self.new_velocity_measurement = False
 
-        # GNSS heading (state 11)
+        # GNSS heading
         if self.new_heading_measurement:
             psi_meas = self.latest_heading[11] 
             psi_ins  = self.es_ekf.x_hat_ins[11,0]
-            z_head   = np.array([[ psi_meas - psi_ins ]]) 
+            z_head   = np.array([[ psi_meas - psi_ins ]]) # Calculate the heading error
             C_head = np.zeros((1, 15))
             C_head[0, 11] = 1.0
 
@@ -320,11 +327,13 @@ class RevoltEKF(Node):
 
             self.new_heading_measurement = False
         
+        # If we have any aiding measurements, we perform the correction step, if not we just propagate the state.
         if zs:
             z_total  = np.vstack(zs)    # combined measurement vector
             Cd_total  = np.vstack(Cs)    # combined measurement matrix, Cd = C
             R_noise  = scipy.linalg.block_diag(*Rs)  # combined measurement noise covariance matrix
 
+            # Corrector: delta_x_hat[k] and P_hat[k]
             delta_x_hat, P_hat = self.es_ekf.correct(z_total, Cd_total, R_noise)
 
             # INS reset: x_ins[k]
@@ -347,9 +356,6 @@ class RevoltEKF(Node):
         )
         # Publish the state estimate
         self._publish_state(x_hat_ins)
-
-        # Debugging ----------
-        #self.get_logger().info(f"IMU update → z=[yaw:{imu_yaw_offset:.3f}, v_integrated: {self.v_integrated:.3f} w:{w_imu:.3f}], x_post={x_post}")
 
     def update_fix(self, msg: NavSatFix):
         # Ensure the value we get is NOT NaN

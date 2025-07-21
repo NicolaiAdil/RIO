@@ -39,20 +39,22 @@ class ErrorState_ExtendedKalmanFilter:
         self.z = np.zeros((self.num_states, 1))  # measurement placeholder
 
         # State estimate
-        # x_hat_ins = [((p_hat_ins)^n)^T, ((v_hat_ins)^n)^T, Θ^T, (Θ_hat_ins)^T, 0^T]^T
+        # x_hat_ins = [((p_hat_ins)^n)^T, ((v_hat_ins)^n)^T, ((b_hat_acc,ins)^b)^T, (Θ_hat_ins)^T, ((b_hat_ars,ins)^b)^T]^T (Eq. 14.213 in Fossen 2nd)
         self.x_hat_ins = np.zeros((self.num_states, 1))  # Also known as x_prior
 
         # INS propagation state
-        self.p_hat_ins = np.zeros((3,1))
-        self.v_hat_ins = np.zeros((3,1))
+        self.p_hat_ins = np.zeros((3,1)) # Position in NED frame
+        self.v_hat_ins = np.zeros((3,1)) # Velocity in NED frame
         self.b_acc_ins = np.zeros((3,1))  # Body frame accelerometer bias
-        self.theta_hat_ins = np.zeros((3,1))  # Orientation in body frame
+        self.theta_hat_ins = np.zeros((3,1))  # Attitude in body frame
         self.b_ars_ins = np.zeros((3,1))  # Body frame angular rate bias
 
         # Error states
+        # Posteri error states
         self.delta_x_hat = np.zeros((self.num_states, 1))  # Also known as x_post
         self.P_hat = np.eye(self.num_states)  # Also known as P_post
-        # placeholders
+
+        # Prior error states
         self.delta_x_hat_prior = np.zeros((self.num_states, 1))
         self.P_hat_prior = np.eye(self.num_states)
 
@@ -79,19 +81,12 @@ class ErrorState_ExtendedKalmanFilter:
         # KF gain: K[k]
         K = self.calculate_kalman_gain(Cd, R)
         IKC = np.eye(self.num_states) - K @ Cd
-
-        
         innovation = z - Cd @ self.delta_x_hat_prior
-        # print("SHAPE OF INNOVATIONS:", innovation.shape)
+  
         self.delta_x_hat = self.delta_x_hat_prior + K @ innovation
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R @ K.T
 
         if self.delta_x_hat.shape != (self.num_states, 1):
-            print(f"SHAPE OF DELTA_X_HAT_PRIOR: {self.delta_x_hat_prior.shape}")
-            print(f"SHAPE OF K: {K.shape}")
-            print(f"SHAPE OF INNOVATION: {innovation.shape}")
-            print(f"SHAPE OF z: {z.shape}")
-            print("SHAPE OF Cd:", Cd.shape)
             raise ValueError(
                 f"Shape mismatch: delta_x_hat {self.delta_x_hat.shape} does not match expected {self.num_states, 1}"
             )
@@ -102,10 +97,6 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Update the state estimate based on the error state.
         """
-        # print("Updating state estimate with delta_x_hat:", delta_x_hat)
-        # print("Shape of delta_x_hat:", delta_x_hat.shape, "\n\n")
-        # print("Current state estimate (x_hat_ins):", self.x_hat_ins)
-        # print("Shape of x_hat_ins:", self.x_hat_ins.shape)
         if delta_x_hat.shape != self.x_hat_ins.shape:
             raise ValueError(
                 f"Shape mismatch: delta_x_hat {delta_x_hat.shape} does not match x_hat_ins {self.x_hat_ins.shape}"
@@ -120,32 +111,18 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Propagate the INS state estimate using the error state.
         """
-        # print("ENTERING INS propagation")
-        # print("Type of x_hat:", type(x_hat))
-        # print("x_hat shape:", x_hat.shape)
-        # print(x_hat)
-        # x_hat = x_hat.reshape(self.num_states, 1) 
-        # f_imu_b = np.asarray(f_imu_b).reshape(3, 1)
-        # w_imu_b = np.asarray(w_imu_b).reshape(3, 1)
-        # g_n     = np.asarray(g_n).reshape(3, 1)
-        #print("Shapes of inputs INS PROP:")
-        #print("x_hat:", x_hat.shape)
-        #print("f_imu_b:", f_imu_b.shape)
-        #print("w_imu_b:", w_imu_b.shape)
-        #print("g_n:", g_n.shape)
-
         b_acc_ins = x_hat[6:9]  # Body frame accelerometer bias
         b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
         # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
         self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6]  # position update
 
-        # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - 0) + g^n)
+        # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
         self.v_hat_ins = x_hat[3:6] + dt * (
             R_bn @ (f_imu_b - b_acc_ins) + g_n
         )  # velocity update
 
-        # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - 0) + g^n)
+        # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_ars,ins^b) + g^n)
         self.theta_hat_ins = x_hat[9:12] + dt * (
             T_bn @ (w_imu_b - b_ars_ins)
         )  # orientation update
@@ -166,11 +143,6 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Compute the Kalman gain.
         """
-        # print("CALCULATING KALMAN GAIN")
-        # print("P_hat_prior shape:", self.P_hat_prior.shape)
-        # print("Cd.T shape:", Cd.T.shape)
-        # print("Cd @ P_hat_prior shape:", (Cd @ self.P_hat_prior).shape)
-        # print("R shape:", R.shape)
         return (
             self.P_hat_prior
             @ Cd.T
@@ -238,7 +210,10 @@ class ErrorState_ExtendedKalmanFilter:
 
 def Rzyx(phi, theta, psi):
     """
-    Compute the 3x3 rotation matrix for Z-Y-X Euler angles.
+    Computes the Euler angle rotation matrix R in SO(3) using the zyx convention.
+
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/LIBRARY/kinematics/Rzyx.m
 
     Parameters
     ----------
@@ -282,11 +257,10 @@ def Rzyx(phi, theta, psi):
 
 def Tzyx(phi, theta):
     """
-    Compute the 3x3 kinematic transformation matrix T for Z-Y-X Euler angles.
+    Computes the Euler angle transformation matrix T for attitude using the zyx convention.
 
-    This maps the Euler-angle rate vector [phi_dot; theta_dot; psi_dot]
-    into the body-fixed angular velocity vector [p; q; r] via:
-        omega = Tzyx(phi, theta) @ [phi_dot; theta_dot; psi_dot]
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/LIBRARY/kinematics/Tzyx.m
 
     Parameters
     ----------
@@ -325,9 +299,14 @@ def Tzyx(phi, theta):
 
 def ssa(angle, unit="rad"):
     """
-    Smallest-Signed Angle: wrap angle to the interval
-      [-π, π) if unit=='rad' (default), or
-      [-180°, 180°) if unit=='deg'.
+    SSA is the "Smallest-Signed Angle" or the smallest difference between two angles.
+
+    For feedback control systems and state estimators used to control the
+    attitude of a vehicle, it is often necessary to wrap angles to the
+    mapped to [-pi pi) or [-180 180) to avoid step inputs/discontinuties.
+
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/LIBRARY/kinematics/ssa.m
 
     Parameters
     ----------
@@ -359,6 +338,9 @@ def gravity(lat):
     """
     g = gravity(latitude) computes the acceleration of gravity (m/s^2) as a function
     of latitude lat (rad) using the WGS-84 ellipsoid parameters
+
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/INS/functions/gravity.m
 
     Parameters
     ----------
