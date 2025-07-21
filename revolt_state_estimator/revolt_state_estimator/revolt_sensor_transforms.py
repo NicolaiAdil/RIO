@@ -1,48 +1,89 @@
-# measurement_models.py
-
 import numpy as np
 
-def h_fix(x: np.ndarray) -> np.ndarray:
+def Rzyx(phi, theta, psi):
     """
-    GNSS /fix measurement model.
+    Computes the Euler angle rotation matrix R in SO(3) using the zyx convention.
 
-    State x = [x_e, y_n, yaw, v, w_yaw]
-    returns z = [x_e, y_n]
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/LIBRARY/kinematics/Rzyx.m
+
+    Parameters
+    ----------
+    phi : float or array_like
+        Rotation about the x-axis (roll).
+    theta : float or array_like
+        Rotation about the y-axis (pitch).
+    psi : float or array_like
+        Rotation about the z-axis (yaw).
+
+    Returns
+    -------
+    R : ndarray, shape (3,3)
+        Rotation matrix in SO(3) corresponding to the sequence
+        R = R_z(psi) @ R_y(theta) @ R_x(phi).
     """
-    # explicitly pick out east (x[0]) and north (x[1])
-    return np.array([x[0], x[1]])
+    cphi = np.cos(phi)
+    sphi = np.sin(phi)
+    cth = np.cos(theta)
+    sth = np.sin(theta)
+    cpsi = np.cos(psi)
+    spsi = np.sin(psi)
 
-def h_head(x: np.ndarray) -> np.ndarray:
+    R = np.array(
+        [
+            [
+                cpsi * cth,
+                -spsi * cphi + cpsi * sth * sphi,
+                spsi * sphi + cpsi * cphi * sth,
+            ],
+            [
+                spsi * cth,
+                cpsi * cphi + sphi * sth * spsi,
+                -cpsi * sphi + sth * spsi * cphi,
+            ],
+            [-sth, cth * sphi, cth * cphi],
+        ]
+    )
+    return R
+
+
+def Tzyx(phi, theta):
     """
-    GNSS heading measurement model.
+    Computes the Euler angle transformation matrix T for attitude using the zyx convention.
 
-    State x = [x_e, y_n, yaw, v, w_yaw]
-    returns z = [yaw]
+    Based on Fossen's Matlab implementation:
+    * https://github.com/cybergalactic/MSS/blob/master/LIBRARY/kinematics/Tzyx.m
+
+    Parameters
+    ----------
+    phi : float or array_like
+        Roll angle (rotation about the x-axis), in radians.
+    theta : float or array_like
+        Pitch angle (rotation about the y-axis), in radians.
+
+    Returns
+    -------
+    T : ndarray, shape (3,3)
+        The kinematic transformation matrix.
+
+    Raises
+    ------
+    ValueError
+        If cos(theta) is (close to) zero, since the matrix is singular at theta = ±90°.
     """
-    # yaw is x[2]
-    return np.array([x[2]])
+    cphi = np.cos(phi)
+    sphi = np.sin(phi)
+    cth = np.cos(theta)
+    sth = np.sin(theta)
 
-def h_vel(x: np.ndarray) -> np.ndarray:
-    """
-    GNSS velocity measurement model in body frame.
-    """
-    v = x[3]
+    if np.isclose(cth, 0.0):
+        raise ValueError("Tzyx is singular for theta = ±90° (cos(theta) = 0)")
 
-    return np.array([v])
-
-def h_imu(x: np.ndarray) -> np.ndarray:
-    """
-    IMU measurement model for EKF (2D ship).
-
-    State x = [x_e, y_n, yaw, v, w_yaw]
-
-    Returns z = [yaw, v, w_yaw]
-    """    
-    # yaw from orientation (we assume quaternion→yaw done upstream)
-    yaw   = x[2]
-    # Linear velocity
-    v     = x[3]
-    # yaw rate directly
-    w_yaw = x[4]
-
-    return np.array([yaw, v, w_yaw])
+    T = np.array(
+        [
+            [1.0, sphi * sth / cth, cphi * sth / cth],
+            [0.0, cphi, -sphi],
+            [0.0, sphi / cth, cphi / cth],
+        ]
+    )
+    return T

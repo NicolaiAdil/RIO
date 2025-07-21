@@ -27,10 +27,9 @@ import numpy as np
 import pymap3d as pm
 import scipy.linalg
 
-from revolt_state_estimator.revolt_model import ReVoltModel
-from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
-from revolt_state_estimator.es_ekf import ErrorState_ExtendedKalmanFilter, ssa, Tzyx, Rzyx, gravity
-from revolt_state_estimator.utils import unwrap
+from revolt_state_estimator.es_ekf import ErrorState_ExtendedKalmanFilter
+from revolt_state_estimator.revolt_sensor_transforms import Tzyx, Rzyx
+from revolt_state_estimator.utils import ssa, gravity
 
 
 
@@ -350,7 +349,6 @@ class RevoltEKF(Node):
                               [0.0, 0.0, var_u]])
         #self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_fix = R_fix_msg
-        self.es_ekf.h = h_fix
 
         # 3) Perform the correction step
         z = np.zeros(15)
@@ -380,9 +378,9 @@ class RevoltEKF(Node):
         q = msg.quaternion
         _, _, yaw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        print(f"Yaw before ssa: {yaw_gnss}")
+        # print(f"Yaw before ssa: {yaw_gnss}")
         yaw_gnss = ssa(yaw_gnss)  # Force yaw to be in [-pi, pi)
-        print(f"Yaw after ssa: {yaw_gnss}")
+        # print(f"Yaw after ssa: {yaw_gnss}")
 
         z = np.zeros(15)
         z[11] = yaw_gnss 
