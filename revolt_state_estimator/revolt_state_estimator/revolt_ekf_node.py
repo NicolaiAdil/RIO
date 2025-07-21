@@ -249,7 +249,7 @@ class RevoltEKF(Node):
         zs, Cs, Rs = [], [], []
         # GNSS position
         if self.new_fix_measurement:
-            p_meas = self.latest_fix[:3].reshape(3,1)
+            p_meas = self.latest_fix
             p_ins  = self.es_ekf.p_hat_ins
             z_fix  = p_meas - p_ins # Calculate the position error                 
             C_fix = np.hstack([I3, O3, O3, O3, O3])
@@ -262,7 +262,7 @@ class RevoltEKF(Node):
 
         # GNSS velocity
         if self.new_velocity_measurement:
-            v_meas = self.latest_velocity[3:6].reshape(3,1) 
+            v_meas = self.latest_velocity
             v_ins  = self.es_ekf.v_hat_ins                   
             z_vel  = v_meas - v_ins # Calculate the velocity error             
             C_vel  = np.hstack([O3, I3, O3, O3, O3])     
@@ -273,7 +273,7 @@ class RevoltEKF(Node):
 
         # GNSS heading
         if self.new_heading_measurement:
-            psi_meas = self.latest_heading[11] 
+            psi_meas = self.latest_heading 
             psi_ins  = self.es_ekf.x_hat_ins[11,0]
             z_head   = np.array([[ psi_meas - psi_ins ]]) # Calculate the heading error
             C_head = np.zeros((1, 15))
@@ -333,33 +333,26 @@ class RevoltEKF(Node):
         # Convert to ENU measurement (east, north, up), ignore up
         self.latest_latitude = msg.latitude
 
-        e, n, u = pm.geodetic2enu(
+        n, e, d = pm.geodetic2ned(
             msg.latitude, msg.longitude, 0.0,
             self.ref_lat, self.ref_lon, 0.0
         )
 
-        # 2) configure EKF measurement model & noise
+        # Configure EKF measurement model & noise
         cov = msg.position_covariance
-        #print(f"GNSS covariance: {cov}")
-        var_e = cov[0]  # latitude variance but because we're in ENU this maps to north; swap if needed
-        var_n = cov[4]  # longitude variance mapping to east
-        var_u = cov[8]  # up variance, not used here
-        R_fix_msg = np.array([[var_e, 0.0, 0.0],
-                              [0.0, var_n, 0.0],
-                              [0.0, 0.0, var_u]])
+        var_n = cov[0]  # latitude variance
+        var_e = cov[4]  # longitude variance
+        var_d = cov[8]  # up variance, not used here
+        R_fix_msg = np.array([[var_n, 0.0, 0.0],
+                              [0.0, var_e, 0.0],
+                              [0.0, 0.0, var_d]])
         #self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_fix = R_fix_msg
 
         # 3) Perform the correction step
-        z = np.zeros(15)
-        z[0] = e
-        z[1] = n
-        z[2] = u 
+        z = np.array([n, e, d]).reshape(3, 1)  # position error in NED
         self.latest_fix = z
         self.new_fix_measurement = True
-
-        # Debugging ----------
-        #self.get_logger().info(f"Fix update → z=[{e:.2f}, {n:.2f}], x_post={x_post}")
 
     def update_heading(self, msg: QuaternionStamped):
         # Ensure the value we get is NOT NaN
@@ -381,11 +374,8 @@ class RevoltEKF(Node):
         # print(f"Yaw before ssa: {yaw_gnss}")
         yaw_gnss = ssa(yaw_gnss)  # Force yaw to be in [-pi, pi)
         # print(f"Yaw after ssa: {yaw_gnss}")
-
-        z = np.zeros(15)
-        z[11] = yaw_gnss 
         
-        self.latest_heading = z
+        self.latest_heading = yaw_gnss
         self.new_heading_measurement = True
 
     def update_vel(self, msg: TwistStamped):
@@ -413,10 +403,7 @@ class RevoltEKF(Node):
         vz = msg.twist.linear.z 
 
         # 3) Perform the correction step
-        z = np.zeros(15)
-        z[3] = vx
-        z[4] = vy
-        z[5] = vz
+        z = np.array([vx, vy, vz]).reshape(3, 1)  # velocity error in NED
         self.latest_velocity = z
         self.new_velocity_measurement = True
     
