@@ -14,7 +14,7 @@ class ErrorState_ExtendedKalmanFilter:
     Extended Kalman Filter with Euler predict + ZOH discretization + numerical Jacobians.
     """
 
-    def __init__(self, Q, R, T_acc, T_ars):
+    def __init__(self, Q, T_acc, T_ars):
         """
         Error-state model:
         δx_dot = A(t)δx + E(t)w
@@ -32,7 +32,6 @@ class ErrorState_ExtendedKalmanFilter:
         self.num_states = 15  # Number of states in the error state model
         self.num_states = self.num_states
         self.Q = Q
-        self.R = R
         self.T_acc = T_acc
         self.T_ars = T_ars
 
@@ -188,24 +187,6 @@ class ErrorState_ExtendedKalmanFilter:
         )
 
         return E
-
-    def generate_C(self):
-        """
-        Generate the measurement matrix C.
-        Defined in Fossen 2nd, eq. 14.194.
-        """
-        O3 = np.zeros((3, 3))  # 3x3 zero matrix
-        I3 = np.eye(3)  # 3x3 identity matrix
-
-        C = np.block(
-            [
-                [I3, O3, O3, O3, O3],  # Position measurement
-                [O3, I3, O3, O3, O3],  # Velocity measurement
-                [O3, O3, O3, I3, O3],  # Orientation measurement
-            ]
-        )
-
-        return C
 
 
 def Rzyx(phi, theta, psi):
