@@ -137,7 +137,7 @@ class RevoltEKF(Node):
         self.head_sub = self.create_subscription(QuaternionStamped, '/heading',  self.update_heading, 1)
         self.vel_sub  = self.create_subscription(TwistStamped,      '/vel',      self.update_vel,     1)
         # IMU
-        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.update_imu, 1)
+        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.imu_callback, 1)
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # Timer for predict()
@@ -228,8 +228,8 @@ class RevoltEKF(Node):
         state.angular_velocity = float(self.latest_yaw_rate)  # yaw rate   (rad/s)
         self.state_pub.publish(state)
 
-    # EKF callback functions (START) ==================================================
-    def update_imu(self, msg: Imu):
+    # EKF main loop
+    def imu_callback(self, msg: Imu):
         # Ensure the value we get is NOT NaN
         if (
             np.isnan(msg.orientation.x) or 
@@ -357,6 +357,8 @@ class RevoltEKF(Node):
         # Publish the state estimate
         self._publish_state(x_hat_ins)
 
+
+    # Callback functions for aiding measurements
     def update_fix(self, msg: NavSatFix):
         # Ensure the value we get is NOT NaN
         if np.isnan(msg.latitude) or np.isnan(msg.longitude):
@@ -427,11 +429,6 @@ class RevoltEKF(Node):
         self.latest_heading = z
         self.new_heading_measurement = True
 
-        # x_post, P_post = self.ekf.update(z)
-
-        # Debugging ----------
-        #self.get_logger().info(f"Heading update → z=[{gnss_yaw_offset:.3f}], x_post={x_post}")
-
     def update_vel(self, msg: TwistStamped):
         # Ensure the value we get is NOT NaN
         if (
@@ -463,9 +460,6 @@ class RevoltEKF(Node):
         z[5] = vz
         self.latest_velocity = z
         self.new_velocity_measurement = True
-
-        # Debugging ----------
-        #self.get_logger().info(f"Vel update → z=[{v_body:.3f}], x_post={x_post}")
     
     # EKF callback functions (STOP) ==================================================
 
