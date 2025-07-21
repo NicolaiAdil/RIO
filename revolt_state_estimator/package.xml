@@ -3,8 +3,8 @@
 <package format="3">
   <name>revolt_state_estimator</name>
   <version>1.0.0</version>
-  <description>EKF-based ship state estimator</description>
-  <maintainer email="smilingis.martynas@gmail.com">martynas</maintainer>
+  <description>ES-EKF-based ship state estimator</description>
+  <maintainer email="NicolaiAdil.Aatif@gmail.com">NicolaiAdil</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
