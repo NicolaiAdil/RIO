@@ -333,24 +333,24 @@ class RevoltEKF(Node):
         # Convert to ENU measurement (east, north, up), ignore up
         self.latest_latitude = msg.latitude
 
-        n, e, d = pm.geodetic2ned(
+        e, n, u = pm.geodetic2enu(
             msg.latitude, msg.longitude, 0.0,
             self.ref_lat, self.ref_lon, 0.0
         )
 
         # Configure EKF measurement model & noise
         cov = msg.position_covariance
-        var_n = cov[0]  # latitude variance
-        var_e = cov[4]  # longitude variance
-        var_d = cov[8]  # up variance, not used here
-        R_fix_msg = np.array([[var_n, 0.0, 0.0],
-                              [0.0, var_e, 0.0],
-                              [0.0, 0.0, var_d]])
+        var_e = cov[0]  # latitude variance
+        var_n = cov[4]  # longitude variance
+        var_u = cov[8]  # up variance, not used here
+        R_fix_msg = np.array([[var_e, 0.0, 0.0],
+                              [0.0, var_n, 0.0],
+                              [0.0, 0.0, var_u]])
         #self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_fix = R_fix_msg
 
         # 3) Perform the correction step
-        z = np.array([n, e, d]).reshape(3, 1)  # position error in NED
+        z = np.array([e, n, u]).reshape(3, 1)  # position error in NED
         self.latest_fix = z
         self.new_fix_measurement = True
 
