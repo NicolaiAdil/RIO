@@ -380,6 +380,9 @@ class RevoltEKF(Node):
         q = msg.quaternion
         _, _, yaw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
 
+        print(f"Yaw before ssa: {yaw_gnss}")
+        yaw_gnss = ssa(yaw_gnss)  # Force yaw to be in [-pi, pi)
+        print(f"Yaw after ssa: {yaw_gnss}")
 
         z = np.zeros(15)
         z[11] = yaw_gnss 
