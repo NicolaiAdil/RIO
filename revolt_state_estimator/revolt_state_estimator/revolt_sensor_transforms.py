@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def Rzyx(phi, theta, psi):
     """
     Computes the Euler angle rotation matrix R in SO(3) using the zyx convention.

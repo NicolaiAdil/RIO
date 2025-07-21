@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def ssa(angle, unit="rad"):
     """
     SSA is the "Smallest-Signed Angle" or the smallest difference between two angles.
@@ -37,6 +38,7 @@ def ssa(angle, unit="rad"):
         return wrapped.item()
     return wrapped
 
+
 def gravity(lat):
     """
     g = gravity(latitude) computes the acceleration of gravity (m/s^2) as a function
@@ -62,6 +64,10 @@ def gravity(lat):
     g0 = 9.7803253359
 
     # Gravity formula based on latitude
-    g = g0 * (1 + 0.001931850400 * np.sin(lat_rad)**2) / np.sqrt(1 - 0.006694384442 * np.sin(lat_rad)**2)
+    g = (
+        g0
+        * (1 + 0.001931850400 * np.sin(lat_rad) ** 2)
+        / np.sqrt(1 - 0.006694384442 * np.sin(lat_rad) ** 2)
+    )
 
     return g

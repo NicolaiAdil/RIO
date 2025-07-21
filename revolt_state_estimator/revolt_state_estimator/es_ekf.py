@@ -41,11 +41,11 @@ class ErrorState_ExtendedKalmanFilter:
         self.x_hat_ins = np.zeros((self.num_states, 1))  # Also known as x_prior
 
         # INS propagation state
-        self.p_hat_ins = np.zeros((3,1)) # Position in NED frame
-        self.v_hat_ins = np.zeros((3,1)) # Velocity in NED frame
-        self.b_acc_ins = np.zeros((3,1))  # Body frame accelerometer bias
-        self.theta_hat_ins = np.zeros((3,1))  # Attitude in body frame
-        self.b_ars_ins = np.zeros((3,1))  # Body frame angular rate bias
+        self.p_hat_ins = np.zeros((3, 1))  # Position in NED frame
+        self.v_hat_ins = np.zeros((3, 1))  # Velocity in NED frame
+        self.b_acc_ins = np.zeros((3, 1))  # Body frame accelerometer bias
+        self.theta_hat_ins = np.zeros((3, 1))  # Attitude in body frame
+        self.b_ars_ins = np.zeros((3, 1))  # Body frame angular rate bias
 
         # Error states
         # Posteri error states
@@ -80,7 +80,7 @@ class ErrorState_ExtendedKalmanFilter:
         K = self.calculate_kalman_gain(Cd, R)
         IKC = np.eye(self.num_states) - K @ Cd
         innovation = z - Cd @ self.delta_x_hat_prior
-  
+
         self.delta_x_hat = self.delta_x_hat_prior + K @ innovation
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R @ K.T
 
@@ -101,7 +101,9 @@ class ErrorState_ExtendedKalmanFilter:
             )
 
         self.x_hat_ins += delta_x_hat
-        self.delta_x_hat = np.zeros((self.num_states, 1))  # Reset error state after update
+        self.delta_x_hat = np.zeros(
+            (self.num_states, 1)
+        )  # Reset error state after update
 
         return self.x_hat_ins
 
@@ -141,11 +143,7 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Compute the Kalman gain.
         """
-        return (
-            self.P_hat_prior
-            @ Cd.T
-            @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
-        )
+        return self.P_hat_prior @ Cd.T @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
 
     def generate_A(self, R_bn, T_bn):
         """
@@ -186,5 +184,3 @@ class ErrorState_ExtendedKalmanFilter:
         )
 
         return E
-
-
