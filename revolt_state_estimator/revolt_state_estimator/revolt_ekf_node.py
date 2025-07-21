@@ -25,6 +25,7 @@ import tf_transformations
 import tf2_ros
 import numpy as np
 import pymap3d as pm
+import scipy.linalg
 
 from revolt_state_estimator.revolt_model import ReVoltModel
 from revolt_state_estimator.revolt_sensor_transforms import h_fix, h_head, h_vel, h_imu
@@ -52,7 +53,7 @@ class RevoltEKF(Node):
         _velocity_angular_max = self.get_parameter('revolt_model.velocity_angular_max').value
 
         # EKF Parameters
-        self.declare_parameter('revolt_ekf.Q',      [0.0]*5) # [x (m), y (m), yaw (rad), v (m/s), w_yaw (rad/s)]
+        self.declare_parameter('revolt_ekf.Q',      [0.0]*12) # []
         self.declare_parameter('revolt_ekf.R_fix',  [0.0, 0.0]) # [x (m), y (m)]
         self.declare_parameter('revolt_ekf.R_head', [0.0]) # [yaw (rad)]
         self.declare_parameter('revolt_ekf.R_vel',  [0.0]) # [v (m/s)]
@@ -115,6 +116,7 @@ class RevoltEKF(Node):
         self.latest_fix = None
         self.latest_velocity = None
         self.latest_heading = None 
+        self.latest_yaw_rate = None
         self.latest_latitude = None # For calculating gravity
         
         # Error-state Extended Kalman Filter setup
@@ -191,9 +193,10 @@ class RevoltEKF(Node):
         #   ϕ,        θ,        ψ,          # attitude Euler angles: roll, pitch, yaw (rad)
         #   b_gyro_x, b_gyro_y, b_gyro_z    # gyroscope biases (rad/s)
         # ] 
+        # print(f"State estimate: {x}, \n Dimensions: {type(x)}")
 
         x_pos, y_pos, z_pos = x[0], x[1], x[2]  # position in navigation frame (m)
-        roll, pitch, yaw = x[6], x[7], x[8]  # attitude Euler angles: roll, pitch, yaw (rad)
+        roll, pitch, yaw = x[9], x[10], x[11]  # attitude Euler angles: roll, pitch, yaw (rad)
         v_x, v_y, v_z = x[3], x[4], x[5]  # velocity in navigation frame (m/s)
         linear_velocity = np.sqrt(v_x**2 + v_y**2)  # magnitude of velocity (ignoring z)
 
@@ -219,10 +222,10 @@ class RevoltEKF(Node):
         # extract from your state vector x_pred = [x, y, yaw, v, w]
         state.x                = float(x_pos)  # world‐frame X
         state.y                = float(y_pos)  # world‐frame Y
-        state.yaw              = float(z_pos)  # heading (rad)
+        state.yaw              = float(yaw)  # heading (rad)
 
         state.linear_velocity  = float(linear_velocity)  # forward speed (m/s)
-        state.angular_velocity = 0.0  # yaw rate   (rad/s)
+        state.angular_velocity = self.latest_yaw_rate  # yaw rate   (rad/s)
         self.state_pub.publish(state)
 
     # EKF callback functions (START) ==================================================
@@ -246,11 +249,15 @@ class RevoltEKF(Node):
 
         # Specific force (acceleration in body frame)
         f_msg = msg.linear_acceleration
-        f_imu = np.array([f_msg.x, f_msg.y, f_msg.z]) - self.es_ekf.b_acc_ins
+        f_vec = np.array([f_msg.x, f_msg.y, f_msg.z]).reshape(3, 1) 
+        f_imu = f_vec - self.es_ekf.b_acc_ins                       
 
         # Attitude rate
         w_msg = msg.angular_velocity
-        w_imu = np.array([w_msg.x, w_msg.y, w_msg.z]) - self.es_ekf.b_ars_ins
+        w_vec = np.array([w_msg.x, w_msg.y, w_msg.z]).reshape(3, 1)   
+        w_imu = w_vec - self.es_ekf.b_ars_ins   
+        # yaw rate
+        self.latest_yaw_rate = w_imu[2, 0]  # z component of angular velocity                   
 
         t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
@@ -273,45 +280,52 @@ class RevoltEKF(Node):
         O3 = np.zeros((3, 3))
         I3 = np.eye(3)
 
-        ys, Cs, Rs = [], [], []
+        zs, Cs, Rs = [], [], []
 
         # GNSS position (first 3 states)
         if self.new_fix_measurement:
-            y_fix = self.latest_fix
+            p_meas = self.latest_fix[:3].reshape(3,1)
+            p_ins  = self.es_ekf.p_hat_ins
+            z_fix  = p_meas - p_ins                         
             C_fix = np.hstack([I3, O3, O3, O3, O3])
-            R_fix = self.R_fix
-            ys.append(y_fix); Cs.append(C_fix); Rs.append(R_fix)
+
+            zs.append( z_fix )
+            Cs.append( C_fix )
+            Rs.append( self.R_fix )
+
             self.new_fix_measurement = False
 
         # GNSS velocity (states 3–5)
         if self.new_velocity_measurement:
-            y_vel = self.latest_velocity
-            C_vel = np.hstack([O3, I3, O3, O3, O3])
-            R_vel = self.R_vel
-            ys.append(y_vel); Cs.append(C_vel); Rs.append(R_vel)
+            v_meas = self.latest_velocity[3:6].reshape(3,1) 
+            v_ins  = self.es_ekf.v_hat_ins                   
+            z_vel  = v_meas - v_ins                        
+            C_vel  = np.hstack([O3, I3, O3, O3, O3])     
+            zs.append( z_vel )
+            Cs.append( C_vel )
+            Rs.append( self.R_vel )
             self.new_velocity_measurement = False
 
         # GNSS heading (state 11)
         if self.new_heading_measurement:
-            y_head = self.latest_heading 
-            C_head = np.zeros((3, 15))
-            C_head[2, 11] = 1
-            R_head = self.R_head
+            psi_meas = self.latest_heading[11] 
+            psi_ins  = self.es_ekf.x_hat_ins[11,0]
+            z_head   = np.array([[ psi_meas - psi_ins ]]) 
+            C_head = np.zeros((1, 15))
+            C_head[0, 11] = 1.0
 
-            ys.append(y_head); Cs.append(C_head); Rs.append(R_head)
+            zs.append( z_head )
+            Cs.append( C_head )
+            Rs.append( self.R_head )
+
             self.new_heading_measurement = False
         
-        if ys:
-            z = np.vstack(ys)    # combined measurement vector
-            Cd = np.vstack(Cs)    # combined measurement matrix, Cd = C
-            R_noise = np.block([[R] for R in Rs])  # combined measurement noise covariance matrix
+        if zs:
+            z_total  = np.vstack(zs)    # combined measurement vector
+            Cd_total  = np.vstack(Cs)    # combined measurement matrix, Cd = C
+            R_noise  = scipy.linalg.block_diag(*Rs)  # combined measurement noise covariance matrix
 
-
-            self.get_logger().info(f"IMU update → z={z.flatten()}")
-            self.get_logger().info(f"IMU update → C={Cd}")            
-
-            # Corrector: delta_x_hat[k] and P_hat[k]
-            delta_x_hat, P_hat = self.es_ekf.correct(z, Cd)
+            delta_x_hat, P_hat = self.es_ekf.correct(z_total, Cd_total, R_noise)
 
             # INS reset: x_ins[k]
             x_hat_ins = self.es_ekf.update_state_estimate(delta_x_hat)
@@ -327,8 +341,9 @@ class RevoltEKF(Node):
         delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Ed)
 
         # INS propagation: x_hat_ins[k+1]
+        g_n = (np.array([0.0, 0.0, gravity(self.latest_latitude)])).reshape(3, 1)  # gravity vector in navigation frame
         x_hat_ins = self.es_ekf.ins_propagation(
-            delta_x_hat_prior, dt, R, T, f_imu, w_imu, g_n=np.array([0.0, 0.0, gravity(self.latest_latitude)])
+            self.es_ekf.x_hat_ins, dt, R, T, f_imu, w_imu, g_n=g_n,
         )
         # Publish the state estimate
         self._publish_state(x_hat_ins)
@@ -344,6 +359,7 @@ class RevoltEKF(Node):
         if not self.initialized:
             # set ENU origin
             self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
+            self.latest_latitude = msg.latitude
             self.initialized = True
             self.get_logger().info("EKF initialized at first GNSS position")
             self.get_logger().info("EKF now waiting for GNSS and IMU heading alignment")
@@ -359,7 +375,7 @@ class RevoltEKF(Node):
 
         # 2) configure EKF measurement model & noise
         cov = msg.position_covariance
-        print(f"GNSS covariance: {cov}")
+        #print(f"GNSS covariance: {cov}")
         var_e = cov[0]  # latitude variance but because we're in ENU this maps to north; swap if needed
         var_n = cov[4]  # longitude variance mapping to east
         var_u = cov[8]  # up variance, not used here
@@ -367,7 +383,7 @@ class RevoltEKF(Node):
                               [0.0, var_n, 0.0],
                               [0.0, 0.0, var_u]])
         #self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
-        self.es_ekf.R = R_fix_msg
+        self.R_fix = R_fix_msg
         self.es_ekf.h = h_fix
 
         # 3) Perform the correction step

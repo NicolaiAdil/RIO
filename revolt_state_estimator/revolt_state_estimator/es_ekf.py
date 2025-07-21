@@ -36,24 +36,24 @@ class ErrorState_ExtendedKalmanFilter:
         self.T_acc = T_acc
         self.T_ars = T_ars
 
-        self.z = np.zeros(self.num_states)  # measurement placeholder
+        self.z = np.zeros((self.num_states, 1))  # measurement placeholder
 
         # State estimate
         # x_hat_ins = [((p_hat_ins)^n)^T, ((v_hat_ins)^n)^T, Θ^T, (Θ_hat_ins)^T, 0^T]^T
-        self.x_hat_ins = np.zeros(self.num_states)  # Also known as x_prior
+        self.x_hat_ins = np.zeros((self.num_states, 1))  # Also known as x_prior
 
         # INS propagation state
-        self.p_hat_ins = np.zeros(3)
-        self.v_hat_ins = np.zeros(3)
-        self.b_acc_ins = np.zeros(3)  # Body frame accelerometer bias
-        self.theta_hat_ins = np.zeros(3)  # Orientation in body frame
-        self.b_ars_ins = np.zeros(3)  # Body frame angular rate bias
+        self.p_hat_ins = np.zeros((3,1))
+        self.v_hat_ins = np.zeros((3,1))
+        self.b_acc_ins = np.zeros((3,1))  # Body frame accelerometer bias
+        self.theta_hat_ins = np.zeros((3,1))  # Orientation in body frame
+        self.b_ars_ins = np.zeros((3,1))  # Body frame angular rate bias
 
         # Error states
-        self.delta_x_hat = np.zeros(self.num_states)  # Also known as x_post
+        self.delta_x_hat = np.zeros((self.num_states, 1))  # Also known as x_post
         self.P_hat = np.eye(self.num_states)  # Also known as P_post
         # placeholders
-        self.delta_x_hat_prior = np.zeros(self.num_states)
+        self.delta_x_hat_prior = np.zeros((self.num_states, 1))
         self.P_hat_prior = np.eye(self.num_states)
 
     def predict(self, Ad, Ed):
@@ -71,18 +71,30 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.delta_x_hat_prior, self.P_hat_prior
 
-    def correct(self, z, C):
+    def correct(self, z, Cd, R):
         """
         Update step: measurement z.
         """
-        Cd = C  # Measurement matrix
 
         # KF gain: K[k]
-        K = self.calculate_kalman_gain(Cd)
+        K = self.calculate_kalman_gain(Cd, R)
         IKC = np.eye(self.num_states) - K @ Cd
 
-        self.delta_x_hat = self.delta_x_hat_prior + K @ (z - Cd @ self.delta_x_hat_prior)
-        self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ self.R @ K.T
+        
+        innovation = z - Cd @ self.delta_x_hat_prior
+        # print("SHAPE OF INNOVATIONS:", innovation.shape)
+        self.delta_x_hat = self.delta_x_hat_prior + K @ innovation
+        self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R @ K.T
+
+        if self.delta_x_hat.shape != (self.num_states, 1):
+            print(f"SHAPE OF DELTA_X_HAT_PRIOR: {self.delta_x_hat_prior.shape}")
+            print(f"SHAPE OF K: {K.shape}")
+            print(f"SHAPE OF INNOVATION: {innovation.shape}")
+            print(f"SHAPE OF z: {z.shape}")
+            print("SHAPE OF Cd:", Cd.shape)
+            raise ValueError(
+                f"Shape mismatch: delta_x_hat {self.delta_x_hat.shape} does not match expected {self.num_states, 1}"
+            )
 
         return self.delta_x_hat, self.P_hat
 
@@ -90,8 +102,17 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Update the state estimate based on the error state.
         """
+        # print("Updating state estimate with delta_x_hat:", delta_x_hat)
+        # print("Shape of delta_x_hat:", delta_x_hat.shape, "\n\n")
+        # print("Current state estimate (x_hat_ins):", self.x_hat_ins)
+        # print("Shape of x_hat_ins:", self.x_hat_ins.shape)
+        if delta_x_hat.shape != self.x_hat_ins.shape:
+            raise ValueError(
+                f"Shape mismatch: delta_x_hat {delta_x_hat.shape} does not match x_hat_ins {self.x_hat_ins.shape}"
+            )
+
         self.x_hat_ins += delta_x_hat
-        self.delta_x_hat = 0  # Reset error state after update
+        self.delta_x_hat = np.zeros((self.num_states, 1))  # Reset error state after update
 
         return self.x_hat_ins
 
@@ -99,6 +120,20 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Propagate the INS state estimate using the error state.
         """
+        # print("ENTERING INS propagation")
+        # print("Type of x_hat:", type(x_hat))
+        # print("x_hat shape:", x_hat.shape)
+        # print(x_hat)
+        # x_hat = x_hat.reshape(self.num_states, 1) 
+        # f_imu_b = np.asarray(f_imu_b).reshape(3, 1)
+        # w_imu_b = np.asarray(w_imu_b).reshape(3, 1)
+        # g_n     = np.asarray(g_n).reshape(3, 1)
+        #print("Shapes of inputs INS PROP:")
+        #print("x_hat:", x_hat.shape)
+        #print("f_imu_b:", f_imu_b.shape)
+        #print("w_imu_b:", w_imu_b.shape)
+        #print("g_n:", g_n.shape)
+
         b_acc_ins = x_hat[6:9]  # Body frame accelerometer bias
         b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
@@ -115,16 +150,31 @@ class ErrorState_ExtendedKalmanFilter:
             T_bn @ (w_imu_b - b_ars_ins)
         )  # orientation update
 
-        return self.p_hat_ins, self.v_hat_ins, self.theta_hat_ins
+        self.x_hat_ins = np.concatenate(
+            [
+                self.p_hat_ins,
+                self.v_hat_ins,
+                b_acc_ins,
+                self.theta_hat_ins,
+                b_ars_ins,
+            ]
+        )
 
-    def calculate_kalman_gain(self, Cd):
+        return self.x_hat_ins
+
+    def calculate_kalman_gain(self, Cd, R):
         """
         Compute the Kalman gain.
         """
+        # print("CALCULATING KALMAN GAIN")
+        # print("P_hat_prior shape:", self.P_hat_prior.shape)
+        # print("Cd.T shape:", Cd.T.shape)
+        # print("Cd @ P_hat_prior shape:", (Cd @ self.P_hat_prior).shape)
+        # print("R shape:", R.shape)
         return (
             self.P_hat_prior
             @ Cd.T
-            @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + self.R)
+            @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
         )
 
     def generate_A(self, R_bn, T_bn):

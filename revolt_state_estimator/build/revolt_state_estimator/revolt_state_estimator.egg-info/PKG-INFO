@@ -1,7 +1,0 @@
-Metadata-Version: 2.1
-Name: revolt-state-estimator
-Version: 1.0.0
-Summary: EKF‐based ship state estimator ROS2 node
-Maintainer: martynas
-Maintainer-email: smilingis.martynas@gmail.com
-License: MIT
