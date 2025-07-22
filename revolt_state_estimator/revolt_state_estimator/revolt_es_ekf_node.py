@@ -131,6 +131,9 @@ class RevoltEKF(Node):
         self.imu_sub = self.create_subscription(Imu, _imu_topic, self.imu_callback, 1)
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
+        # TF listener
+        self.tf_buffer   = tf2_ros.Buffer(self.get_clock())
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         # State publisher
         self.state_pub = self.create_publisher(StateEstimate, _state_estimate_topic, 10)
 
@@ -231,6 +234,8 @@ class RevoltEKF(Node):
 
         if not self.initialized:
             return
+        
+        # Convert from IMU frame to body frame
 
         # AHRS angles
         q = msg.orientation
