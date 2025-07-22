@@ -46,6 +46,7 @@ def gravity(lat):
 
     Based on Fossen's Matlab implementation:
     * https://github.com/cybergalactic/MSS/blob/master/INS/functions/gravity.m
+    * And equation 14.20 in Fossen 2nd edition
 
     Parameters
     ----------
