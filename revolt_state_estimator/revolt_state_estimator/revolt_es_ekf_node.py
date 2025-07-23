@@ -165,7 +165,9 @@ class RevoltEKF(Node):
             f" T_acc: {_T_acc}               \n"
             f" T_ars: {_T_ars}               \n"
             f"                                   \n"
+            f"Publisher topics:                     \n"
             f"State estimate topic: {_state_estimate_topic} \n"
+            f"Subscribe topics:                  \n"
             f"IMU topic: {_imu_topic} \n"
             f"GNSS fix topic: {_fix_topic} \n"
             f"GNSS heading topic: {_heading_topic} \n"
@@ -384,7 +386,7 @@ class RevoltEKF(Node):
             self.latest_latitude = msg.latitude
             self.initialized = True
             self.get_logger().info(
-                "ES-EKF successfully initialized at first GNSS position"
+                "ES-EKF successfully initialized at first GNSS position. Running ES-EKF loop."
             )
             return
 
@@ -471,7 +473,7 @@ class RevoltEKF(Node):
         omega_y = msg.twist.angular.y
         omega_z = msg.twist.angular.z
 
-        v = np.array([vx, vy, vz]).reshape(3, 1)  # velocity in gps frame (m/s)
+        v = np.array([-vy, vx, -vz]).reshape(3, 1)  # velocity in gps frame (m/s)
         # omega = np.array([omega_x, omega_y, omega_z]).reshape(
         #     3, 1
         # )  # angular rate in gps frame (rad/s)
