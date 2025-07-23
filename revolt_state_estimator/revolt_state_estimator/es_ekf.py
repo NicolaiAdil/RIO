@@ -29,7 +29,6 @@ class ErrorState_ExtendedKalmanFilter:
         dt : timestep
         """
         self.num_states = 15  # Number of states in the error state model
-        self.num_states = self.num_states
         self.Q = Q
         self.T_acc = T_acc
         self.T_ars = T_ars
@@ -44,7 +43,7 @@ class ErrorState_ExtendedKalmanFilter:
         self.p_hat_ins = np.zeros((3, 1))  # Position in NED frame
         self.v_hat_ins = np.zeros((3, 1))  # Velocity in NED frame
         self.b_acc_ins = np.zeros((3, 1))  # Body frame accelerometer bias
-        self.theta_hat_ins = np.zeros((3, 1))  # Attitude in body frame
+        self.theta_hat_ins = np.zeros((3, 1))  # Attitude from body to NED frame
         self.b_ars_ins = np.zeros((3, 1))  # Body frame angular rate bias
 
         # Error states

@@ -11,11 +11,12 @@ Fuses:
     + yaw rate
     + linear velocity (integrated from linear acceleration)
 Publishes:
- - world → body TF
+ - enu → body TF
  - ekf/state Odometry (x, y, yaw, v, yaw_rate)
 """
 
 import rclpy
+import rclpy.duration
 import rclpy.logging
 from rclpy.node import Node
 from custom_msgs.msg import StateEstimate
@@ -32,6 +33,7 @@ import tf2_ros
 import numpy as np
 import pymap3d as pm
 import scipy.linalg
+import asyncio
 
 from revolt_state_estimator.es_ekf import ErrorState_ExtendedKalmanFilter
 from revolt_state_estimator.revolt_sensor_transforms import Tzyx, Rzyx
@@ -103,6 +105,11 @@ class RevoltEKF(Node):
         self.R_head = np.diag(_R_head)
         self.R_vel = np.diag(_R_vel)
 
+        # Reference position for NED frame
+        self.ref_lat = None  # Reference latitude for NED frame
+        self.ref_lon = None  # Reference longitude for NED frame
+        self.ref_altitude = None  # Reference altitude for NED frame
+
         # Latest measurements
         self.latest_fix = None
         self.latest_velocity = None
@@ -132,7 +139,7 @@ class RevoltEKF(Node):
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         # TF listener
-        self.tf_buffer   = tf2_ros.Buffer(self.get_clock())
+        self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         # State publisher
         self.state_pub = self.create_publisher(StateEstimate, _state_estimate_topic, 10)
@@ -192,10 +199,10 @@ class RevoltEKF(Node):
         v_x, v_y, v_z = x[3], x[4], x[5]  # velocity in navigation frame (m/s)
         linear_velocity = np.sqrt(v_x**2 + v_y**2)  # magnitude of velocity (ignoring z)
 
-        # Broadcast world → body TF
+        # Broadcast NED → imu TF
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = "world"
+        t.header.frame_id = "ned"
         t.child_frame_id = "body"
         t.transform.translation.x = float(x_pos)
         t.transform.translation.y = float(y_pos)
@@ -208,7 +215,7 @@ class RevoltEKF(Node):
         # 3) Publish ekf/state as Odometry
         state = StateEstimate()
         state.header.stamp = t.header.stamp
-        state.header.frame_id = "world"
+        state.header.frame_id = "ned"
         state.child_frame_id = "body"
 
         # extract from your state vector x_pred = [x, y, yaw, v, w]
@@ -234,8 +241,10 @@ class RevoltEKF(Node):
 
         if not self.initialized:
             return
-        
-        # Convert from IMU frame to body frame
+
+        # Update listeners
+        # self.tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=3600))
+        # self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         # AHRS angles
         q = msg.orientation
@@ -267,6 +276,7 @@ class RevoltEKF(Node):
         self.imu_last_stamp = t
 
         # Rotation and transformation matrices from body to NED
+        # R_bn = self.get_rotation_and_translation_from_tf("body", "ned")
         R = Rzyx(roll_imu, pitch_imu, yaw_imu)
         T = Tzyx(roll_imu, pitch_imu)
 
@@ -369,8 +379,8 @@ class RevoltEKF(Node):
             return
 
         if not self.initialized:
-            # set ENU origin
-            self.ref_lat, self.ref_lon = msg.latitude, msg.longitude
+            # set NED origin
+            self.ref_lat, self.ref_lon, self.ref_altitude = msg.latitude, msg.longitude, msg.altitude
             self.latest_latitude = msg.latitude
             self.initialized = True
             self.get_logger().info(
@@ -378,24 +388,24 @@ class RevoltEKF(Node):
             )
             return
 
-        # Convert to ENU measurement (east, north, up)
+        # Convert to NED measurement (North, east, down)
         self.latest_latitude = msg.latitude
 
-        e, n, u = pm.geodetic2enu(
-            msg.latitude, msg.longitude, 0.0, self.ref_lat, self.ref_lon, 0.0
+        n, e, d = pm.geodetic2ned(
+            msg.latitude, msg.longitude, msg.altitude, self.ref_lat, self.ref_lon, msg.altitude
         )
 
         # Configure EKF measurement model & noise
         cov = msg.position_covariance
-        var_e = cov[0]  # latitude variance
-        var_n = cov[4]  # longitude variance
-        var_u = cov[8]  # up variance, not used here
-        R_fix_msg = np.array([[var_e, 0.0, 0.0], [0.0, var_n, 0.0], [0.0, 0.0, var_u]])
+        var_n = cov[4]  # latitude variance
+        var_e = cov[0]  # longitude variance
+        var_d = cov[8]  # up variance, not used here
+        R_fix_msg = np.array([[var_n, 0.0, 0.0], [0.0, var_e, 0.0], [0.0, 0.0, var_d]])
         # self.ekf.R = self.R_fix # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         self.R_fix = R_fix_msg
 
-        # 3) Perform the correction step
-        z = np.array([e, n, u]).reshape(3, 1)  # position error in ENU
+        # Perform the correction step
+        z = np.array([n, e, d]).reshape(3, 1)  # position error in NED
         self.latest_fix = z
         self.new_fix_measurement = True
 
@@ -414,7 +424,19 @@ class RevoltEKF(Node):
 
         # Get GNSS yaw
         q = msg.quaternion
-        _, _, yaw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        roll_gnss, pitch_gnss, yaw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        theta_gnss = np.array([roll_gnss, pitch_gnss, yaw_gnss]).reshape(3, 1)
+
+        # R_gnss_to_imu, _ = self.get_rotation_and_translation_from_tf(
+        #     "gps", "imu"
+        # )
+        # # Transform GNSS yaw to IMU frame
+        # print(f"yaw before transformation: {yaw_gnss}")
+        # theta_imu = R_gnss_to_imu @ theta_gnss
+
+        # # Extract yaw in imu frame
+        # yaw_gnss = theta_imu[2, 0]
+        # print(f"yaw after transformation: {yaw_gnss}")
 
         # print(f"Yaw before ssa: {yaw_gnss}")
         yaw_gnss = ssa(yaw_gnss)  # Force yaw to be in [-pi, pi)
@@ -439,17 +461,91 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # Extract GNSS‐reported velocity in world frame
+        # Extract GNSS velocity in gps frame
         vx = msg.twist.linear.x
         vy = msg.twist.linear.y
         vz = msg.twist.linear.z
 
-        # 3) Perform the correction step
-        z = np.array([vx, vy, vz]).reshape(3, 1)  # velocity error in NED
-        self.latest_velocity = z
-        self.new_velocity_measurement = True
+        # This is used for the transformation
+        omega_x = msg.twist.angular.x
+        omega_y = msg.twist.angular.y
+        omega_z = msg.twist.angular.z
+
+        v = np.array([vx, vy, vz]).reshape(3, 1)  # velocity in gps frame (m/s)
+        # omega = np.array([omega_x, omega_y, omega_z]).reshape(
+        #     3, 1
+        # )  # angular rate in gps frame (rad/s)
+
+        # # Transform velocity from gps to imu frame       
+        # R_nb, _ = self.get_rotation_and_translation_from_tf(
+        #     "ned", "body"
+        # )
+        # _, r_body_to_imu = self.get_rotation_and_translation_from_tf(
+        #     "body", "imu"
+        # )
+        # skew_omega_nb = self.skew_symmetric_matrix(omega)
+
+        # # Based on Fossen 2nd ed. Eq. 14.41, with the assumption that (r_b,mg)^b = 0
+        # # (v_n,mI)^n = (v_gnss)^n + R_nb @ skew((omega_nb)^b) @ r_body_to_imu
+        # v = v + R_nb @ skew_omega_nb @ r_body_to_imu
+    
+        self.latest_velocity = v
+        # self.new_velocity_measurement = True
 
     # EKF callback functions (STOP) ==================================================
+    
+    def get_rotation_and_translation_from_tf(self, frame_from: str, frame_to: str):
+        """
+        Get the rotation and translation from one frame to another using TF2.
+        """
+        try:
+            tf_future = self.tf_buffer.wait_for_transform_async(
+                frame_to, frame_from, rclpy.time.Time()
+            )
+            rclpy.spin_until_future_complete(self, tf_future)
+            print("Got it!")
+
+            tf = asyncio.run(self.tf_buffer.lookup_transform_async(
+                frame_to, frame_from, rclpy.time.Time()
+            ))
+
+            rotation = tf_transformations.quaternion_matrix(
+                [
+                    tf.transform.rotation.x,
+                    tf.transform.rotation.y,
+                    tf.transform.rotation.z,
+                    tf.transform.rotation.w,
+                ]
+            )[:3, :3]  # Rotation matrix
+            translation = np.array(
+                [
+                    tf.transform.translation.x,
+                    tf.transform.translation.y,
+                    tf.transform.translation.z,
+                ]
+            ).reshape(3, 1)  # Translation vector
+
+            # print(f"Rotation from {frame_from} to {frame_to}: \n{rotation}")
+            # print(f"Translation from {frame_from} to {frame_to}: \n{translation}")
+            return rotation, translation
+
+        except Exception as e:
+            self.get_logger().warn(f"Error: {e}. Using identity transform instead.")
+            return np.eye(3), np.zeros((3, 1))
+    
+    def skew_symmetric_matrix(self, vec: np.array):
+        """
+        Create a skew-symmetric matrix from a 3D vector.
+        """
+        if vec.shape != (3, 1):
+            raise ValueError("Input vector must be a 3D vector.")
+        return np.array(
+            [
+                [0         , -vec[2, 0], vec[1, 0] ],
+                [vec[2, 0] , 0         , -vec[0, 0]],
+                [-vec[1, 0], vec[0, 0] , 0         ],
+            ]  
+        )
 
 
 def main():
