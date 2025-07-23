@@ -19,7 +19,7 @@ import rclpy
 import rclpy.duration
 import rclpy.logging
 from rclpy.node import Node
-from custom_msgs.msg import StateEstimate
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64
 from geometry_msgs.msg import (
@@ -114,8 +114,11 @@ class RevoltEKF(Node):
         self.latest_fix = None
         self.latest_velocity = None
         self.latest_heading = None
-        self.latest_yaw_rate = None
         self.latest_latitude = None  # For calculating gravity
+
+        self.latest_roll_rate = None
+        self.latest_pitch_rate = None
+        self.latest_yaw_rate = None
 
         # Error-state Extended Kalman Filter setup
         self.es_ekf = ErrorState_ExtendedKalmanFilter(
@@ -142,7 +145,7 @@ class RevoltEKF(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         # State publisher
-        self.state_pub = self.create_publisher(StateEstimate, _state_estimate_topic, 10)
+        self.state_pub = self.create_publisher(Odometry, _state_estimate_topic, 10)
 
         # Debugging ----------
         np.set_printoptions(
@@ -180,7 +183,7 @@ class RevoltEKF(Node):
 
     # Initialize EKF system (STOP) ==================================================
 
-    def _publish_state(self, x):
+    def _publish_state(self, x, P):
 
         # State is a 15‑element vector:
         # x_hat_ins = [
@@ -190,16 +193,15 @@ class RevoltEKF(Node):
         #   ϕ,        θ,        ψ,          # attitude Euler angles: roll, pitch, yaw (rad)
         #   b_gyro_x, b_gyro_y, b_gyro_z    # gyroscope biases (rad/s)
         # ]
-        # print(f"State estimate: {x}, \n Dimensions: {type(x)}")
+        # P is the covariance matrix of the full state estimate.
 
-        x_pos, y_pos, z_pos = x[0], x[1], x[2]  # position in navigation frame (m)
+        x_pos, y_pos, z_pos = x[0], x[1], x[2]  # position in NED frame (m)
+        v_x, v_y, v_z = x[3], x[4], x[5]  # velocity in NED frame (m/s)
         roll, pitch, yaw = (
             x[9],
             x[10],
             x[11],
         )  # attitude Euler angles: roll, pitch, yaw (rad)
-        v_x, v_y, v_z = x[3], x[4], x[5]  # velocity in navigation frame (m/s)
-        linear_velocity = np.sqrt(v_x**2 + v_y**2)  # magnitude of velocity (ignoring z)
 
         # Broadcast NED → imu TF
         t = TransformStamped()
@@ -214,19 +216,40 @@ class RevoltEKF(Node):
         t.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         self.tf_broadcaster.sendTransform(t)
 
-        # 3) Publish ekf/state as Odometry
-        state = StateEstimate()
+        # 3) Publish ekf/state as Odometry 
+        state = Odometry()
         state.header.stamp = t.header.stamp
         state.header.frame_id = "ned"
         state.child_frame_id = "body"
 
-        # extract from your state vector x_pred = [x, y, yaw, v, w]
-        state.x = float(x_pos)  # world‐frame X
-        state.y = float(y_pos)  # world‐frame Y
-        state.yaw = float(yaw)  # heading (rad)
+        state.pose.pose.position.x = float(x_pos)
+        state.pose.pose.position.y = float(y_pos)
+        state.pose.pose.position.z = float(z_pos)
 
-        state.linear_velocity = float(linear_velocity)  # forward speed (m/s)
-        state.angular_velocity = float(self.latest_yaw_rate)  # yaw rate   (rad/s)
+        qx, qy, qz, qw = tf_transformations.quaternion_from_euler(roll, pitch, yaw)
+        state.pose.pose.orientation.x  = float(qx)
+        state.pose.pose.orientation.y  = float(qy)
+        state.pose.pose.orientation.z  = float(qz)
+        state.pose.pose.orientation.w  = float(qw)
+
+        # Covariance matrix
+        pose_cov = np.zeros((6, 6))
+        pose_cov[0:3, 0:3] = P[0:3, 0:3]
+        pose_cov[3:6, 3:6] = P[9:12, 9:12]
+        state.pose.covariance = pose_cov.flatten().tolist()
+
+        state.twist.twist.linear.x = float(v_x)  # North or X velocity (m/s)
+        state.twist.twist.linear.y = float(v_y)  # East or Y velocity (m/s)
+        state.twist.twist.linear.z = float(v_z)  # Down or Z velocity (m/s)
+
+        state.twist.twist.angular.x = float(self.latest_roll_rate)  # Roll rate (rad/s)
+        state.twist.twist.angular.y = float(self.latest_pitch_rate)  # Pitch rate (rad/s)
+        state.twist.twist.angular.z = float(self.latest_yaw_rate)  # Yaw rate (rad/s)
+
+        velocity_cov = np.zeros((6, 6))
+        velocity_cov[0:3, 0:3] = P[3:6, 3:6]  # v_x variance
+        state.twist.covariance = velocity_cov.flatten().tolist()
+
         self.state_pub.publish(state)
 
     # EKF main loop. The ES-EKF runs at the frequency of the IMU.
@@ -264,7 +287,10 @@ class RevoltEKF(Node):
         w_vec = np.array([w_msg.x, w_msg.y, w_msg.z]).reshape(3, 1)
         w_imu = w_vec - self.es_ekf.b_ars_ins
 
-        # This implementation does not estimate the attitude rate, so we use the IMU ARS directly.
+        # This implementation does not estimate the attitude rate, so we use the IMU ARS directly
+        # To feed forward the yaw rate into the state estimate
+        self.latest_roll_rate = w_imu[0, 0]
+        self.latest_pitch_rate = w_imu[1, 0]
         self.latest_yaw_rate = w_imu[2, 0]
 
         # Current time
@@ -349,7 +375,7 @@ class RevoltEKF(Node):
             x_hat_ins = self.es_ekf.update_state_estimate(delta_x_hat)
 
             # Publish the state estimate
-            self._publish_state(x_hat_ins)
+            self._publish_state(x_hat_ins, P_hat)
 
         else:
             # No aiding measurements
@@ -372,7 +398,7 @@ class RevoltEKF(Node):
             g_n=g_n,
         )
         # Publish the state estimate
-        self._publish_state(x_hat_ins)
+        self._publish_state(x_hat_ins, P_hat_prior)
 
     # Callback functions for aiding measurements
     def update_fix(self, msg: NavSatFix):
