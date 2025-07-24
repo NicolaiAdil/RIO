@@ -48,9 +48,6 @@ class RevoltEKF(Node):
 
         # EKF Parameters
         self.declare_parameter("revolt_ekf.Q", [0.0] * 12)  # []
-        self.declare_parameter(
-            "revolt_ekf.R_fix", [0.0, 0.0, 0.0]
-        )  # [x (m), y (m), z (m)]
         self.declare_parameter("revolt_ekf.R_head", [0.0])  # [yaw (rad)]
         self.declare_parameter(
             "revolt_ekf.R_vel", [0.0, 0.0, 0.0]
@@ -62,9 +59,6 @@ class RevoltEKF(Node):
             "revolt_ekf.T_ars", 500.0
         )  # 14.196 in Fossen 2nd edition
         _Q = self.get_parameter("revolt_ekf.Q").value
-        _R_fix = self.get_parameter(
-            "revolt_ekf.R_fix"
-        ).value  # NOTE: Not using the static one as the GNSS has dynamic covariance matrix inbuilt in sensor itself
         _R_head = self.get_parameter("revolt_ekf.R_head").value
         _R_vel = self.get_parameter("revolt_ekf.R_vel").value
         _T_acc = self.get_parameter("revolt_ekf.T_acc").value
@@ -99,9 +93,7 @@ class RevoltEKF(Node):
 
         # Noise models
         self.Q = np.diag(_Q)
-        self.R_fix = np.diag(
-            _R_fix
-        )  # NOTE: This is just a current guess. We will update it with the GNSS covariance matrix
+        self.R_fix = np.eye(3)  # GNSS position measurement noise
         self.R_head = np.diag(_R_head)
         self.R_vel = np.diag(_R_vel)
 
@@ -159,8 +151,6 @@ class RevoltEKF(Node):
             f"EKF Parameters:                    \n"
             f" Q:                                \n"
             f" {self.Q}                          \n"
-            f" R_fix:                            \n"
-            f" {self.R_fix}                      \n"
             f" R_head:                           \n"
             f" {self.R_head}                     \n"
             f" R_vel:                            \n"
@@ -412,7 +402,7 @@ class RevoltEKF(Node):
             self.latest_latitude = msg.latitude
             self.initialized = True
             self.get_logger().info(
-                "ES-EKF successfully initialized at first GNSS position. Running ES-EKF loop."
+                "ES-EKF successfully initialized at first GNSS position. \nRunning ES-EKF loop."
             )
             return
 
@@ -425,6 +415,8 @@ class RevoltEKF(Node):
 
         # Configure EKF measurement model & noise
         cov = msg.position_covariance
+
+        # The original noise is given in ENU, convert to NED
         var_n = cov[4]  # latitude variance
         var_e = cov[0]  # longitude variance
         var_d = cov[8]  # up variance, not used here

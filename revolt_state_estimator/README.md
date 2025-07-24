@@ -1,5 +1,5 @@
 # ReVolt State Estimator
-A ROS 2 package providing an Extended Kalman Filter (EKF) for estimating a ship’s state (position, heading, velocity) by fusing GNSS and IMU data.
+A ROS 2 package providing an Error State Extended Kalman Filter (ES-EKF) for estimating a ship’s state (Pose and velocity) by fusing GNSS and IMU data.
 
 ---
 
@@ -7,18 +7,12 @@ A ROS 2 package providing an Extended Kalman Filter (EKF) for estimating a ship
 The **ReVolt State Estimator** fuses:
 - **GNSS** (`/fix`, `/heading`, `/vel`)
 - **IMU** (`/imu/data`)
-- **Thruster commands** (`/tau_m`, `/tau_delta`)
 
 It outputs:
-- **TF**: `world → body`
-- **Odometry**: `custom_msgs/StateEstimate` on `/state_estimate/revolt`
+- **TF**: `NED → Body`
+- **Odometry**: `nav_msgs/Odometry` on topic `/state_estimate/revolt`
 
 ## Features
-- Continuous‐time ship model (surge & yaw dynamics)
-- EKF with:
-  - Euler forward prediction
-  - Zero-order hold discretization of linearized dynamics
-  - Numerical Jacobians
 - Dynamic measurement noise from GNSS covariance
 - Integrated IMU dead‐reckoning with GNSS reset
 - Configurable via YAML (model & EKF)
@@ -29,54 +23,40 @@ Launch the estimator:
 ```bash
 ros2 launch revolt_state_estimator revolt_state_estimator.launch.py
 ```
-Nodes will declare parameters from `config/revolt_ekf.yaml` and `config/revolt_model.yaml` on startup.
+Nodes will declare parameters from `config/revolt_ekf.yaml` on startup.
 
 ## Nodes & Launch
 ### Node: `revolt_ekf_node`
 - **Executable**: `revolt_ekf_node`
 - **Package**: `revolt_state_estimator`
-- **Launch**: `revolt_state_estimator.launch.py` loads model & EKF configs and starts the node fileciteturn0file0.
+- **Launch**: `revolt_state_estimator.launch.py` loads ES-EKF config and starts the node.
 
 ## Topics & Messages
 ### Subscribed
 | Topic        | Type                     | Description                         |
 |--------------|--------------------------|-------------------------------------|
-| `/tau_m`     | `std_msgs/Float64`       | Thruster effort command             |
-| `/tau_delta` | `std_msgs/Float64`       | Thruster angle command (rad)        |
 | `/fix`       | `sensor_msgs/NavSatFix`  | GNSS position (lat, lon + covariance)|
 | `/heading`   | `geometry_msgs/QuaternionStamped` | GNSS heading (as quaternion) |
 | `/vel`       | `geometry_msgs/TwistStamped`      | GNSS linear velocity (world frame) |
 | `/imu/data`  | `sensor_msgs/Imu`        | IMU orientation, accel & gyro       |
 
 ### Published
-| Topic                         | Type                         | Description                  |
-|-------------------------------|------------------------------|------------------------------|
-| `/state_estimate/revolt`      | `custom_msgs/StateEstimate`  | Estimated [x, y, yaw, v, w]  |
-| `world → body` (TF)           | `geometry_msgs/TransformStamped` | Pose transform         |
+| Topic                         | Type                             | Description                  |
+|-------------------------------|----------------------------------|------------------------------|
+| `/state_estimate/revolt`      | `nav_msgs/Odometry`              | Estimated [p, v, Theta]      |
+| `NED → body` (TF)             | `geometry_msgs/TransformStamped` | Pose transform               |
 
 ## Parameters & Configuration
 Configurations live in the `config/` folder:
-- **revolt_model.yaml**: ship physical & hydrodynamic parameters
-- **revolt_ekf.yaml**: EKF noise covariances & prediction rate
-
-### Model Parameters (`revolt_model`)
-| Name                          | Type     | Units    | Description                            |
-|-------------------------------|----------|----------|----------------------------------------|
-| `m`                           | float    | kg       | Ship mass                              |
-| `dimensions`                  | [float]  | [m,m]    | [half‑width (r), length (l)]           |
-| `thruster_placement`         | [float]  | [m,m]    | Thruster position in body frame (x,y)  |
-| `velocity_linear_max`         | float    | m/s      | Max surge speed (for clipping)         |
-| `velocity_angular_max`        | float    | rad/s    | Max yaw rate (for clipping)            |
+- **revolt_ekf.yaml**: Noise covariances and topic names
 
 ### EKF Parameters (`revolt_ekf`)
-| Name            | Type   | Units                   | Description                                              |
-|-----------------|--------|-------------------------|----------------------------------------------------------|
-| `Q`             | [float]| process noise diag ([x, y, yaw, v, w]) | Covariance of process noise         |
-| `R_fix`         | [float]| [m², m²]               | GNSS fix measurement noise (covariance matrix diag)      |
-| `R_head`        | [float]| rad²                   | GNSS heading noise                                        |
-| `R_vel`         | [float]| (m/s)²                | GNSS velocity noise                                       |
-| `R_imu`         | [float]| [rad², (m/s)², (rad/s)²] | IMU measurement noise (yaw, v, w)                       |
-| `pred_freq`     | float  | Hz                     | Prediction loop frequency                                  |
+| Name            | Type   | Units                                            | Description                                         |
+|-----------------|--------|--------------------------------------------------|-----------------------------------------------------|
+| `Q`             | [float]| process noise diag ([p, v, b_acc, Theta, b_ars]) | Covariance of ins model                             |
+| `R_fix`         | [float]| [m², m²]                                         | GNSS fix measurement noise (covariance matrix diag) |
+| `R_head`        | [float]| rad²                                             | GNSS heading noise                                  |
+| `R_vel`         | [float]| (m/s)²                                           | GNSS velocity noise                                 |
 
 ## State & Measurement Vectors
 - **State** vector `x = [x, y, yaw, v, w_yaw]`:

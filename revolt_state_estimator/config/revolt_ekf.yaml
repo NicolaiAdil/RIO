@@ -27,7 +27,7 @@
       T_ars: 500.0 # 14.196 in Fossen 2nd edition
 
       # ROS2 PARAMETERS
-      state_estimate_topic: '/state_estimate/revolt'
+      state_estimate_topic: '/state_estimate/revolt' # Publisher
       imu_topic: '/imu/data'
       fix_topic: '/fix'
       heading_topic: '/heading'
