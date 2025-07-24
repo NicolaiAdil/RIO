@@ -1,4 +1,5 @@
 import numpy as np
+from revolt_state_estimator.utils import ssa
 
 # =============================================================================
 # ekf.py
@@ -122,9 +123,17 @@ class ErrorState_ExtendedKalmanFilter:
         )  # velocity update
 
         # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_ars,ins^b) + g^n)
-        self.theta_hat_ins = x_hat[9:12] + dt * (
+        theta_hat_unwrapped = x_hat[9:12] + dt * (
             T_bn @ (w_imu_b - b_ars_ins)
         )  # orientation update
+        roll_wrapped = ssa(theta_hat_unwrapped[0])
+        pitch_wrapped = ssa(theta_hat_unwrapped[1])
+        yaw_wrapped = ssa(theta_hat_unwrapped[2])
+
+        self.theta_hat_ins = np.array([[roll_wrapped], [pitch_wrapped], [yaw_wrapped]]).reshape(3, 1)
+        # self.theta_hat_ins = x_hat[9:12] + dt * (
+        #     T_bn @ (w_imu_b - b_ars_ins)
+        # )  # orientation update
 
         self.x_hat_ins = np.concatenate(
             [

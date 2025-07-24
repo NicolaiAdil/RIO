@@ -448,7 +448,7 @@ class RevoltEKF(Node):
         # Get GNSS yaw
         q = msg.quaternion
         roll_gnss, pitch_gnss, yaw_gnss = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        theta_gnss = np.array([roll_gnss, pitch_gnss, yaw_gnss]).reshape(3, 1)
+        # theta_gnss = np.array([roll_gnss, pitch_gnss, yaw_gnss]).reshape(3, 1)
 
         # R_gnss_to_imu, _ = self.get_rotation_and_translation_from_tf(
         #     "gps", "imu"
@@ -484,17 +484,26 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # Extract GNSS velocity in gps frame
+        # Extract GNSS velocity in ENU
         vx = msg.twist.linear.x
         vy = msg.twist.linear.y
         vz = msg.twist.linear.z
+        v_enu = np.array([vx, vy, vz]).reshape(3, 1)
 
         # This is used for the transformation
         omega_x = msg.twist.angular.x
         omega_y = msg.twist.angular.y
         omega_z = msg.twist.angular.z
 
-        v = np.array([-vy, vx, -vz]).reshape(3, 1)  # velocity in gps frame (m/s)
+        # Convert to NED frame (North, East, Down)
+        R_enu_to_ned = np.array(
+            [
+                [0, 1, 0],  
+                [1, 0, 0], 
+                [0, 0, -1],
+            ]
+        )
+        v_ned = R_enu_to_ned @ v_enu  # Transform velocity to NED frame
         # omega = np.array([omega_x, omega_y, omega_z]).reshape(
         #     3, 1
         # )  # angular rate in gps frame (rad/s)
@@ -512,10 +521,9 @@ class RevoltEKF(Node):
         # # (v_n,mI)^n = (v_gnss)^n + R_nb @ skew((omega_nb)^b) @ r_body_to_imu
         # v = v + R_nb @ skew_omega_nb @ r_body_to_imu
     
-        self.latest_velocity = v
+        self.latest_velocity = v_ned
 
-        # The velocity measurement ruins the estimate. Something is wrong with either the transformation
-        # self.new_velocity_measurement = True
+        self.new_velocity_measurement = True
 
     # EKF callback functions (STOP) ==================================================
     
