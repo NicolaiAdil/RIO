@@ -1,11 +1,11 @@
 # ReVolt SensorFusion Stack
 
-A unified ROS 2 workspace for advanced perception and estimation on the ReVolt vessel. Initially focused on fusing GNSS, IMU, and thruster data into a robust state estimate, this stack will grow to include modules for target tracking, SLAM, computer vision, and more.
+A unified ROS 2 workspace for advanced perception and estimation on the ReVolt vessel. Initially focused on fusing GNSS, and IMU into a robust state estimate, this stack will grow to include modules for target tracking, SLAM, computer vision, and more.
 
 ---
 
 ## Overview
-The SensorFusion workspace integrates custom messages, launch scripts, and algorithm implementations to build a modular pipeline: from low‑level sensor inputs through mid‑level state estimation to high‑level autonomy. It currently provides an EKF‑based state estimator producing vessel pose (`x, y, yaw`) and motion (`v, w`) along with the corresponding TF transform. Future packages will slot in seamlessly for mapping, object detection, and navigation.
+The SensorFusion workspace integrates custom messages, launch scripts, and algorithm implementations to build a modular pipeline: from low‑level sensor inputs through mid‑level state estimation to high‑level autonomy. It currently provides an ES-EKF‑based state estimator producing vessel pose and velocity in NED. Future packages will slot in seamlessly for mapping, object detection, and navigation.
 
 ---
 
@@ -51,7 +51,7 @@ Individual packages can also be launched on demand by specifying `<package> <lau
 ## Packages
 
 ### sensor_fusion_launch
-Main launch package that loads configuration files (`revolt_model.yaml`, `revolt_ekf.yaml`) and spawns the EKF node with required transforms.
+Main launch package that loads configuration files (`revolt_ekf.yaml`) and spawns the EKF node with required transforms.
 
 ```bash
 ros2 launch sensor_fusion_launch sensor_fusion.launch.py
@@ -67,16 +67,13 @@ This package hosts the EKF node that fuses incoming sensor and control signals i
   - `/heading` (`QuaternionStamped`) for GNSS heading
   - `/vel` (`TwistStamped`) for GNSS velocity
   - `/imu/data` (`Imu`) for orientation, acceleration, and angular rate
-  - `/tau_m` & `/tau_delta` (`Float64`) for thruster commands (these topics become available when you launch the Control Systems repository alongside SensorFusion)
 
 - **Publications**:
 
-  - `/state_estimate/revolt` (`custom_msgs/StateEstimate`) carrying `[x, y, yaw, v, w]`
-  - TF transform `world → body`
+  - `/state_estimate/revolt` (`nav_msg/Odometry`)
+  - TF transform `ned → body`
 
-The thruster command topics allow the controller to send real‑time control signals to both the hardware drivers and the state estimator. This dual feed means the estimator knows what commands were applied, improving prediction accuracy. In turn, the hardware drivers move the vessel toward the desired reference, and the estimator reports the actual vessel state back to the controller—resulting in a more accurate, robust, stable, and smooth control loop.
-
-Within this package, a `state_estimate_tuning/` directory holds Python scripts for analyzing filter residuals and adjusting noise covariances—a convenient way to refine EKF performance against logged data.
+Within this package, a `state_estimate_tuning/` directory holds Python scripts for analyzing filter residuals and adjusting noise covariances—a convenient way to refine ES-EKF performance against logged data.
 
 ---
 
