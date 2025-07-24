@@ -7,11 +7,6 @@
       Q: [100.0, 100.0, 50.0, 20.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
-      # R_fix:
-      # σ_east  = 0.0000196888 [m]
-      # σ_north = 0.0000196888 [m]
-      # !!! NOTE: This R_fix is not in use anymore, because the GNSS sensor has a inbuilt dynamic covariance matrix, which we are using instead. That GNSS dynamic covariance matrix is superior. It can be found in the /fix topic itself :)
-      R_fix:  [0.1, 0.1, 0.1] # [x (m), y (m), z(m)]
 
       # R_head:
       # σ_heading = 0.074655 [rad]
@@ -32,3 +27,4 @@
       fix_topic: '/fix'
       heading_topic: '/heading'
       velocity_topic: '/vel'
+  

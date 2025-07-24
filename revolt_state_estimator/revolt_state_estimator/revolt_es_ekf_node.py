@@ -192,7 +192,6 @@ class RevoltEKF(Node):
             x[10],
             x[11],
         )  # attitude Euler angles: roll, pitch, yaw (rad)
-
         # Broadcast NED → imu TF
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
@@ -232,9 +231,13 @@ class RevoltEKF(Node):
         state.twist.twist.linear.y = float(v_y)  # East or Y velocity (m/s)
         state.twist.twist.linear.z = float(v_z)  # Down or Z velocity (m/s)
 
-        state.twist.twist.angular.x = float(self.latest_roll_rate)  # Roll rate (rad/s)
-        state.twist.twist.angular.y = float(self.latest_pitch_rate)  # Pitch rate (rad/s)
-        state.twist.twist.angular.z = float(self.latest_yaw_rate)  # Yaw rate (rad/s)
+        # Could feed forward the imu angular velocity, but will not do it to avoid confusion
+        # state.twist.twist.angular.x = float(self.latest_roll_rate)  # Roll rate (rad/s)
+        # state.twist.twist.angular.y = float(self.latest_pitch_rate)  # Pitch rate (rad/s)
+        # state.twist.twist.angular.z = float(self.latest_yaw_rate)  # Yaw rate (rad/s)
+        state.twist.twist.angular.x = 0.0  # Roll rate (rad/s)
+        state.twist.twist.angular.y = 0.0  # Pitch rate (rad/s)
+        state.twist.twist.angular.z = 0.0  # Yaw rate (rad/s)
 
         velocity_cov = np.zeros((6, 6))
         velocity_cov[0:3, 0:3] = P[3:6, 3:6]  # v_x variance
@@ -510,6 +513,8 @@ class RevoltEKF(Node):
         # v = v + R_nb @ skew_omega_nb @ r_body_to_imu
     
         self.latest_velocity = v
+
+        # The velocity measurement ruins the estimate. Something is wrong with either the transformation
         # self.new_velocity_measurement = True
 
     # EKF callback functions (STOP) ==================================================
