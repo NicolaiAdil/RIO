@@ -4,26 +4,20 @@ from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
-    config_path_ekf = PathJoinSubstitution([
+    config_path_es_ekf = PathJoinSubstitution([
         FindPackageShare('revolt_state_estimator'),
         'config',
-        'revolt_ekf.yaml'
-    ])
-    config_path_model = PathJoinSubstitution([
-        FindPackageShare('revolt_state_estimator'),
-        'config',
-        'revolt_model.yaml'
+        'revolt_es_ekf.yaml'
     ])
 
     return LaunchDescription([
         Node(
             package='revolt_state_estimator',
-            executable='revolt_ekf_node',
-            name='revolt_ekf_node',
+            executable='revolt_es_ekf_node',
+            name='revolt_es_ekf_node',
             output='screen',
             parameters=[
-                config_path_ekf,
-                config_path_model,
+                config_path_es_ekf,
             ],
         ),
     ])

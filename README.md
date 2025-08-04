@@ -41,7 +41,7 @@ First bring up hardware drivers, then start the estimation stack:
 
 ```bash
 ros2 launch hardware_launch hardware.launch.py # thrusters, IMU, GNSS, etc.
-ros2 launch sensor_fusion_launch sensor_fusion.launch.py  # EKF state estimator
+ros2 launch sensor_fusion_launch sensor_fusion.launch.py  # ES-EKF state estimator
 ```
 
 Individual packages can also be launched on demand by specifying `<package> <launch_file>`.
@@ -51,7 +51,7 @@ Individual packages can also be launched on demand by specifying `<package> <lau
 ## Packages
 
 ### sensor_fusion_launch
-Main launch package that loads configuration files (`revolt_ekf.yaml`) and spawns the EKF node with required transforms.
+Main launch package that loads configuration files (`revolt_es_ekf.yaml`) and spawns the ES-EKF node.
 
 ```bash
 ros2 launch sensor_fusion_launch sensor_fusion.launch.py
@@ -59,7 +59,7 @@ ros2 launch sensor_fusion_launch sensor_fusion.launch.py
 
 ### revolt_state_estimator
 
-This package hosts the EKF node that fuses incoming sensor and control signals into a unified state estimate:
+This package hosts the ES-EKF node that fuses incoming sensor and control signals into a unified state estimate:
 
 - **Subscriptions**:
 
