@@ -148,7 +148,7 @@ class RevoltEKF(Node):
 
         self.get_logger().info(
             f"                                   \n"
-            f"EKF Parameters:                    \n"
+            f"ES-EKF Parameters:                 \n"
             f" Q:                                \n"
             f" {self.Q}                          \n"
             f" R_head:                           \n"
