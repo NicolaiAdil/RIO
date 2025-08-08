@@ -269,6 +269,10 @@ class RevoltEKF(Node):
         roll_imu, pitch_imu, yaw_imu = tf_transformations.euler_from_quaternion(
             [q.x, q.y, q.z, q.w]
         )
+         # Force rpy to be in [-pi, pi)
+        roll_imu = ssa(roll_imu) 
+        pitch_imu = ssa(pitch_imu)
+        yaw_imu = ssa(yaw_imu)
 
         # Specific force (acceleration in body frame)
         f_msg = msg.linear_acceleration
@@ -343,7 +347,7 @@ class RevoltEKF(Node):
         if self.new_heading_measurement:
             psi_meas = self.latest_heading
             psi_ins = self.es_ekf.x_hat_ins[11, 0]
-            z_head = np.array([[psi_meas - psi_ins]])  # Calculate the heading error
+            z_head = np.array([[ssa(psi_meas - psi_ins)]])  # Calculate the heading error
             C_head = np.zeros((1, 15))
             C_head[0, 11] = 1.0
 
