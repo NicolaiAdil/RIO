@@ -196,7 +196,7 @@ class RevoltEKF(Node):
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = "ned"
-        t.child_frame_id = "body"
+        t.child_frame_id = "body" # This is in reality imu frame. See readme for discussion of problem
         t.transform.translation.x = float(x_pos)
         t.transform.translation.y = float(y_pos)
         t.transform.translation.z = float(z_pos)
@@ -465,9 +465,7 @@ class RevoltEKF(Node):
         # yaw_gnss = theta_imu[2, 0]
         # print(f"yaw after transformation: {yaw_gnss}")
 
-        # print(f"Yaw before ssa: {yaw_gnss}")
         yaw_gnss = ssa(yaw_gnss)  # Force yaw to be in [-pi, pi)
-        # print(f"Yaw after ssa: {yaw_gnss}")
 
         self.latest_heading = yaw_gnss
         self.new_heading_measurement = True
@@ -494,11 +492,6 @@ class RevoltEKF(Node):
         vz = msg.twist.linear.z
         v_enu = np.array([vx, vy, vz]).reshape(3, 1)
 
-        # This is used for the transformation
-        omega_x = msg.twist.angular.x
-        omega_y = msg.twist.angular.y
-        omega_z = msg.twist.angular.z
-
         # Convert to NED frame (North, East, Down)
         R_enu_to_ned = np.array(
             [
@@ -508,6 +501,10 @@ class RevoltEKF(Node):
             ]
         )
         v_ned = R_enu_to_ned @ v_enu  # Transform velocity to NED frame
+        # # This is used for the transformation
+        # omega_x = msg.twist.angular.x
+        # omega_y = msg.twist.angular.y
+        # omega_z = msg.twist.angular.z
         # omega = np.array([omega_x, omega_y, omega_z]).reshape(
         #     3, 1
         # )  # angular rate in gps frame (rad/s)

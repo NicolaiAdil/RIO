@@ -116,3 +116,10 @@ Node(
 )
 ```
 More in `launch/revolt_state_estimator.launch.py`
+
+
+## Problems
+
+Currently there is a problem with tf2, where it finds the static transforms in the tree, but it is not able to find it when actually calling it. The problem is further discussed in [this issue](https://answers.ros.org/question/397914/), but no good enough solution has been found yet (current solutions are slow and not realiable). The current solution are local transforms (matrices in the code which are not dependent on tf2). 
+
+We also publish the transform from ned->body, which in reality is ned->imu. If the tf2 problems are solved then the static transforms can be used again, and the ned->body transform can be changed to ned->imu.
