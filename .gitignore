@@ -1,5 +1,6 @@
 
 .vscode/
+.venv/
 
 # eclipse stuff
 .project
