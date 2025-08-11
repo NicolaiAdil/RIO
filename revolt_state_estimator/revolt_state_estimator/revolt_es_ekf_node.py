@@ -417,7 +417,7 @@ class RevoltEKF(Node):
         self.latest_latitude = msg.latitude
 
         n, e, d = pm.geodetic2ned(
-            msg.latitude, msg.longitude, msg.altitude, self.ref_lat, self.ref_lon, msg.altitude
+            msg.latitude, msg.longitude, msg.altitude, self.ref_lat, self.ref_lon, self.ref_altitude
         )
 
         # Configure EKF measurement model & noise
