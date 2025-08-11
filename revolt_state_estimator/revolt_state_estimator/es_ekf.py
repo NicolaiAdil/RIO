@@ -2,7 +2,7 @@ import numpy as np
 from revolt_state_estimator.utils import ssa
 
 # =============================================================================
-# ekf.py
+# es_ekf.py
 #
 # Error-State Extended Kalman Filter implementation in Python, with numerical Jacobians,
 # system discretization (ZOH), and predict/correct stages.

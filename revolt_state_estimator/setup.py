@@ -23,7 +23,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'revolt_ekf_node = revolt_state_estimator.revolt_es_ekf_node:main',
+            'revolt_es_ekf_node = revolt_state_estimator.revolt_es_ekf_node:main',
         ],
     },
 )
