@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV /home/nicolai/work/dnv/ros2_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv
+set -gx VIRTUAL_ENV /home/revoltrevolt/Controlsystem_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

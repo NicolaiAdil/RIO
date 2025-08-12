@@ -39,10 +39,10 @@ deactivate nondestructive
 if [ "${OSTYPE:-}" = "cygwin" ] || [ "${OSTYPE:-}" = "msys" ] ; then
     # transform D:\path\to\venv to /d/path/to/venv on MSYS
     # and to /cygdrive/d/path/to/venv on Cygwin
-    export VIRTUAL_ENV=$(cygpath /home/nicolai/work/dnv/ros2_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv)
+    export VIRTUAL_ENV=$(cygpath /home/revoltrevolt/Controlsystem_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv)
 else
     # use the path as-is
-    export VIRTUAL_ENV=/home/nicolai/work/dnv/ros2_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv
+    export VIRTUAL_ENV=/home/revoltrevolt/Controlsystem_ws/src/SensorFusion/revolt_state_estimator/state_estimate_tuning/.venv
 fi
 
 _OLD_VIRTUAL_PATH="$PATH"
