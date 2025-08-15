@@ -1,75 +1,80 @@
-# Introduction 
-This repository contains all the higher-level sensor fusion systems currently (partially) implemented on the ReVolt platform. The goal of the sensor fusion stack is to convert data from a lidar, radar and 360 degree camera into points and track in 2D, as well as to gather semantic data about the 3D world around the vessel.
+# ReVolt SensorFusion Stack
 
-A previous master thesis focused on fusing camera and lidar data, while the radar tracker has for the most part been developed separately, based on code from the autosea project. Much work remains to polish these systems and to seamlessly integrate them with both the real and digital twin.
+A unified ROS 2 workspace for advanced perception and estimation on the ReVolt vessel. Initially focused on fusing GNSS, and IMU into a robust state estimate, this stack will grow to include modules for target tracking, SLAM, computer vision, and more.
 
-### SensorFusion/camera-lidar
+---
 
-The subpackage [SensorFusion/camera-lidar](SensorFusion/camera-lidar) folder consists of the following packages
+## Overview
+The SensorFusion workspace integrates custom messages, launch scripts, and algorithm implementations to build a modular pipeline: from low‑level sensor inputs through mid‑level state estimation to high‑level autonomy. It currently provides an ES-EKF‑based state estimator producing vessel pose and velocity in NED. Future packages will slot in seamlessly for mapping, object detection, and navigation.
 
-* **frame_publisher**
-    * Contains a node that takes data from the xsense IMU and the VS330 GNSS compass, and outputs the measured ship position in NED.
-* **frame_transformer**
-    * Contains nodes that implement the frame transforms ned->body and body->sensor.
-* **lidar_processing**
-    * Contains a node that takes the incoming point cloud from the velodyne LIDAR and converts it to various other point clouds. 
-    * Note that this package contains a lot of code for processing; look in lidar_clustering.cpp for the main functionality.
-* **object_detection**
-    * A node that takes the feed from the Ladybug camera as input, and produces a camera measurement based on the bounding boxes produced by the darknet ROS network.
-    * Classes of objects that can be recognized:  
-        * Boat: Produces a camera measurement with bearing of the boat and confidence that said boat actually *is* a boat.
-* **realtime validation**
-    * A package that enables calculation of time occurences for different events, from a common time reference.
-    * NB! Appears to be incomplete as of 03.06.2021
+---
 
-### SensorFusion/darknet_ros
+## Workspace Setup
 
-* **darknet**
-    * Contains darknet. A collection of neural network implentations used for computer vision.
-* **darknet_ros**
-    * Contains nodes that implement the ROS interface to darknet. We use the yolov3 part of this.
-* **darknet_ros_msgs**
-    * Contains the message types BoundingBox and BoundingBoxes that is used to convey these to ROS nodes.
+To prepare your ROS 2 environment:
 
-### SensorFusion/data_stream
+```bash
+# 1. Create workspace
+mkdir -p ~/my_ws/src
+cd ~/my_ws/src
 
-* **tcp_datatransciever**
-    * Used to forward ROS topics to the RMC (remote control center) via TCP.
-* **udp_receiver**
-    * Parses [NMEA standard](https://en.wikipedia.org/wiki/NMEA_0183) obstacle-data sent from ReVolt to a ROS topic.
-* **udp_video_stream**
-    * Subscribes to camera ROS topic and forwards it using UDP.
+# 2. Clone dependencies and SensorFusion
+git clone <hardware-repo-url> Hardware     # low-level drivers
+git clone <revolt-messages-repo-url> RevoltMsgs
+git clone <sensorfusion-repo-url> SensorFusion
 
-### SensorFusion/radar_processing
+# 3. Build selected packages
+cd ~/my_ws
+colcon build --packages-select hardware_launch revolt_msgs revolt_state_estimator sensor_fusion_launch
 
-* **RadarPointsToClusters**
-    * Converts radar points to clusters.
-* **RadarSpokesToPoints**
-    * Converts radar spokes to points.
+# 4. Source setup
+source install/setup.bash
+```
 
-### SensorFusion/revolt_tracking
+After this, all nodes, messages, and launches are available.
 
-* **autoseapy_tracking**
-    * Contains autosea implementation of a tracking library. Contains a lot of different tools for track initiation, track management and tracking models.
+---
 
-### SensorFusion/sensor_fusion_launch
+## Launching SensorFusion
 
-* **launch**
-    * Contains launch files for launching the tracking parts, camera tracking and LiDAR tracking.
+First bring up hardware drivers, then start the estimation stack:
 
-# Getting Started
-Like most other ReVolt submodules, this repository has its own Dockerfile and will run in its own container. To get started, perform the following steps:
+```bash
+ros2 launch hardware_launch hardware.launch.py # thrusters, IMU, GNSS, etc.
+ros2 launch sensor_fusion_launch sensor_fusion.launch.py  # EKF state estimator
+```
 
-1.	Clone this repository and the RevoltMsgs repository into the same parent folder
-2.  Build the Docker container by running `docker build -f ./SensorFusion/Dockerfile --tag revolt:sensor-fusion .`
-3.  Deploy the container using `docker run --rm -it revolt:sensor-fusion` or by using the entry in the docker-compose file found in the ControlSystem repository
+Individual packages can also be launched on demand by specifying `<package> <launch_file>`.
 
-# Developing in devcontainer
-If you want to write code without rebuilding the image all the time you need to clone the RevoltMsgs and DigitalTwin repos to the parent folder of SensorFusion.
-Then you can use the commands `docker-compose -f ./dev/docker-compose.yml up sensor-fusion -d` to build and run the image and then `docker exec -it dev-sensor-fusion bash`
+---
 
-Swap "sensor-fusion" for "sensor-fusion-win" if using windows.
+## Packages
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+### sensor_fusion_launch
+Main launch package that loads configuration files (`revolt_ekf.yaml`) and spawns the EKF node with required transforms.
 
+```bash
+ros2 launch sensor_fusion_launch sensor_fusion.launch.py
+```
+
+### revolt_state_estimator
+
+This package hosts the EKF node that fuses incoming sensor and control signals into a unified state estimate:
+
+- **Subscriptions**:
+
+  - `/fix` (`NavSatFix`) for GNSS position
+  - `/heading` (`QuaternionStamped`) for GNSS heading
+  - `/vel` (`TwistStamped`) for GNSS velocity
+  - `/imu/data` (`Imu`) for orientation, acceleration, and angular rate
+
+- **Publications**:
+
+  - `/state_estimate/revolt` (`nav_msg/Odometry`)
+  - TF transform `ned → body`
+
+Within this package, a `state_estimate_tuning/` directory holds Python scripts for analyzing filter residuals and adjusting noise covariances—a convenient way to refine ES-EKF performance against logged data.
+
+---
+
+Refer to individual package READMEs for detailed parameter descriptions and theoretical background. Happy fusing!
