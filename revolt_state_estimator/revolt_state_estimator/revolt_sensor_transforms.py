@@ -77,7 +77,7 @@ def Tzyx(phi, theta):
     cth = np.cos(theta)
     sth = np.sin(theta)
 
-    if np.isclose(cth, 0.0):
+    if np.isclose(cth, 0.0, atol=1e-6):
         raise ValueError("Tzyx is singular for theta = ±90° (cos(theta) = 0)")
 
     T = np.array(
