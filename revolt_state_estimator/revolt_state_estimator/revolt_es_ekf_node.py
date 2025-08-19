@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ROS2 node that runs an Error-state Extended Kalman Filter using INS and an IMU with an AHRS system.
-This is based on the Fossen 2nd edition book, chapter 14.4.2 - Error-stateKalman Filter Using Attitude Measurements.
+This is based on the Fossen 2nd edition book, chapter 14.4.2 - Error-state Kalman Filter Using Attitude Measurements.
 Fuses:
  - GNSS position (/fix)
  - GNSS heading (/heading)
@@ -11,8 +11,8 @@ Fuses:
     + yaw rate
     + linear velocity (integrated from linear acceleration)
 Publishes:
- - enu → body TF
- - ekf/state Odometry (x, y, yaw, v, yaw_rate)
+ - ned → body TF
+ - nav_msgs/Odometry with the state estimate
 """
 
 import rclpy
