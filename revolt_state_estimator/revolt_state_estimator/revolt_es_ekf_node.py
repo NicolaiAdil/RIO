@@ -302,13 +302,16 @@ class RevoltEKF(Node):
 
         # Rotation and transformation matrices from body to NED
         # R_bn = self.get_rotation_and_translation_from_tf("body", "ned")
-        R = Rzyx(roll_imu, pitch_imu, yaw_imu)
-        T = Tzyx(roll_imu, pitch_imu)
+        # Use EKF's own nominal attitude for linearization & mechanization
+        roll_est, pitch_est, yaw_est = self.es_ekf.theta_hat_ins.flatten()
+        R = Rzyx(roll_est, pitch_est, yaw_est)   # body -> NED
+        T = Tzyx(roll_est, pitch_est)            # Euler kinematics
+
 
         # System dynamics to implement the 15-state error-state model
         # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
         # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
-        A = self.es_ekf.generate_A(R, T)  # Eq. 14.192 in Fossen 2nd ed.
+        A = self.es_ekf.generate_A(R, T, f_imu)  # Eq. 14.192 in Fossen 2nd ed.
         E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
@@ -482,7 +485,7 @@ class RevoltEKF(Node):
             return
 
         # reject all‐zero bursts (bad data that sometimes comes up from linear velocity)
-        if msg.twist.linear.x == 0.0 or msg.twist.linear.y == 0.0:
+        if msg.twist.linear.x == 0.0 and msg.twist.linear.y == 0.0:
             return
 
         if not self.initialized:

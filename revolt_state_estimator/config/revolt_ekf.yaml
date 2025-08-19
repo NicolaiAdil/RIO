@@ -4,7 +4,7 @@
       # Process noise, The smaller the value, the more you trust your model
       # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
       # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
-      Q: [100.0, 100.0, 50.0, 20.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+      Q: [0.2, 0.2, 0.2, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1, 0.0001, 0.0001, 0.0001]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
 
@@ -18,8 +18,8 @@
       R_vel:  [0.3, 0.3, 0.3] # [v_x, v_y, v_z (m/s)]
 
       # Time constants for the bias models, chosen based on the matlab example
-      T_acc: 10.0 # Eq. 14.195 in Fossen 2nd edition
-      T_ars: 5.0 # 14.196 in Fossen 2nd edition
+      T_acc: 100.0 # Eq. 14.195 in Fossen 2nd edition
+      T_ars: 60.0 # 14.196 in Fossen 2nd edition
 
       # ROS2 PARAMETERS
       state_estimate_topic: '/state_estimate/revolt' # Publisher

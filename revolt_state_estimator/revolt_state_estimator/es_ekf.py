@@ -1,5 +1,5 @@
 import numpy as np
-from revolt_state_estimator.utils import ssa
+from revolt_state_estimator.utils import ssa, _skew
 
 # =============================================================================
 # es_ekf.py
@@ -111,15 +111,15 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Propagate the INS state estimate using the error state.
         """
-        b_acc_ins = x_hat[6:9]  # Body frame accelerometer bias
-        b_ars_ins = x_hat[12:15]  # Body frame angular rate
+        self.b_acc_ins = x_hat[6:9]  # Body frame accelerometer bias
+        self.b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
         # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
         self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6]  # position update
 
         # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
         self.v_hat_ins = x_hat[3:6] + dt * (
-            R_bn @ (f_imu_b - b_acc_ins) + g_n
+            R_bn @ (f_imu_b) + g_n
         )  # velocity update
 
         # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_ars,ins^b) + g^n)
@@ -134,16 +134,16 @@ class ErrorState_ExtendedKalmanFilter:
 
 
         self.theta_hat_ins = x_hat[9:12] + dt * (
-            T_bn @ (w_imu_b - b_ars_ins)
+            T_bn @ (w_imu_b)
         )  # orientation update
 
         self.x_hat_ins = np.concatenate(
             [
                 self.p_hat_ins,
                 self.v_hat_ins,
-                b_acc_ins,
+                self.b_acc_ins,
                 self.theta_hat_ins,
-                b_ars_ins,
+                self.b_ars_ins,
             ]
         )
 
@@ -155,24 +155,19 @@ class ErrorState_ExtendedKalmanFilter:
         """
         return self.P_hat_prior @ Cd.T @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
 
-    def generate_A(self, R_bn, T_bn):
+    def generate_A(self, R_nb, T_nb, f_b_nom):
         """
-        Generate the state transition matrix A.
-        Defined in Fossen 2nd, eq. 14.192.
+        Linearized error dynamics (Fossen 2nd, §14.4.2):
+        δv̇^n = -R_nb δb_a^b  - R_nb [f_b_nom]_x δΘ
         """
-        O3 = np.zeros((3, 3))  # 3x3 zero matrix
-        I3 = np.eye(3)  # 3x3 identity matrix
-
-        A = np.block(
-            [
-                [O3, I3, O3, O3, O3],
-                [O3, O3, -R_bn, O3, O3],
-                [O3, O3, -1 / self.T_acc * I3, O3, O3],
-                [O3, O3, O3, O3, -T_bn],
-                [O3, O3, O3, O3, -1 / self.T_ars * I3],
-            ]
-        )
-
+        O3 = np.zeros((3, 3)); I3 = np.eye(3)
+        A = np.block([
+            [O3, I3,                 O3,                  O3,               O3],
+            [O3, O3,               -R_nb,        -R_nb @ _skew(f_b_nom),    O3],
+            [O3, O3, -(1/self.T_acc)*I3,          O3,                       O3],
+            [O3, O3,                 O3,          O3,                     -T_nb],
+            [O3, O3,                 O3,          O3,     -(1/self.T_ars)*I3],
+        ])
         return A
 
     def generate_E(self, R_bn, T_bn):
