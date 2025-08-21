@@ -1,6 +1,10 @@
 # ReVolt State Estimator
 A ROS 2 package providing an Error State Extended Kalman Filter (ES-EKF) for estimating a ship’s state (Pose and velocity) by fusing GNSS and IMU data.
 
+**NOTE**: The current estimate is from NED -> IMU frame since tf2 is not working properly. In theory it is a simple static transformation, but tf2 is struggling to find these transforms so is working very slowly. However with the current configuration of the IMU, the imu frame and body frame are the same so no transformation is needed. 
+
+tldr; if the imu changes position or orientation, the tf2 transform will need to be implemented, or a hardcoded transform.
+
 ---
 
 ## Overview
@@ -11,12 +15,6 @@ The **ReVolt State Estimator** fuses:
 It outputs:
 - **TF**: `NED → Body`
 - **Odometry**: `nav_msgs/Odometry` on topic `/state_estimate/revolt`
-
-## Features
-- Dynamic measurement noise from GNSS covariance
-- Integrated IMU dead‐reckoning with GNSS reset
-- Configurable via YAML (model & EKF)
-- Launch file for easy startup
 
 ## Usage
 Launch the estimator:
@@ -54,65 +52,20 @@ Configurations live in the `config/` folder:
 | Name            | Type   | Units                                            | Description                                         |
 |-----------------|--------|--------------------------------------------------|-----------------------------------------------------|
 | `Q`             | [float]| process noise diag ([p, v, b_acc, Theta, b_ars]) | Covariance of ins model                             |
-| `R_fix`         | [float]| [m², m²]                                         | GNSS fix measurement noise (covariance matrix diag) |
 | `R_head`        | [float]| rad²                                             | GNSS heading noise                                  |
-| `R_vel`         | [float]| (m/s)²                                           | GNSS velocity noise                                 |
+| `R_vel`         | [float]| [(m/s)², (m/s)², (m/s)²]                                           | GNSS velocity noise                                 |
+
+The covariance of the fix is automatically taken from the /fix topic.
 
 ## State & Measurement Vectors
-- **State** vector `x = [x, y, yaw, v, w_yaw]`:
-  - `x, y` – position in East/North (m)
-  - `yaw` – heading angle (rad)
-  - `v` – forward speed (m/s)
-  - `w_yaw` – yaw rate (rad/s)
+- **State** vector `x = [p, v, b_acc, Theta, b_ars]`:
+  - `p = [x, y, z]` – position in NED (m)
+  - `v = [v_x, v_y, v_z]` – velocity in NED (m/s)
+  - `b_acc` – bias in accelerometer (m/s²)
+  - `Theta = [phi, theta, psi]` – attitude in (rad)
+  - `b_ars` – bias in angular rate sensor (rad/s)
 
-- **Measurement** vector `z` varies per sensor:
-  - **GNSS fix**: `[x, y]` (m)
-  - **GNSS heading**: `[yaw]` (rad)
-  - **GNSS vel**: `[v]` (m/s)
-  - **IMU**: `[yaw, v, w_yaw]` (rad, m/s, rad/s)
-
-Function-to-measurement mappings in `revolt_sensor_transforms.py` fileciteturn0file4.
-
-## Kalman Filter Theory
-An Extended Kalman Filter operates in two steps:
-1. **Predict**
-   - Propagate state via continuous ship model `f(x,u)` using Euler integration.
-   - Linearize dynamics: Jacobian `A = ∂f/∂x`, `B = ∂f/∂u` (numerical).  
-   - Discretize via Zero-Order Hold: `(A_d, B_d) = expm([[A,B];[0,0]]·dt)`.
-   - Update covariance: `P₋ = A_d P₊ A_dᵀ + Q`.
-
-2. **Update**
-   - Choose measurement model `h(x)` (position, heading, vel, IMU).  
-   - Linearize: `H = ∂h/∂x` (numerical).  
-   - Compute innovation `y = z - h(x₋)`, covariance `S = H P₋ Hᵀ + R`.  
-   - Kalman gain: `K = P₋ Hᵀ S⁻¹`.  
-   - State update: `x₊ = x₋ + K y`, `P₊ = (I − K H) P₋`.
-
-Tuning **Q**, **R** matrices balances trust in model vs. measurements. High **Q** → trust measurements. High **R** → trust prediction.
-
-## Tuning & Analysis Tools
-Under `state_estimate_tuning/`, non‑ROS scripts help select `Q,R`:
-- **data/**: recorded logs of GNSS & IMU
-- **plot_fix.py**: plot position residuals vs. truth
-- **plot_head.py**: compare heading estimates
-- **plot_vel.py**: velocity error analysis
-- **plot_imu.py**: IMU compensation diagnostics
-- **plot_estimates.py**: overlay all state estimates
-- **plots/**: generated figures
-
-Use these to visualize filter performance, adjust covariance entries, and re‑run estimator until residuals are white and zero‑mean.
-
-## Launch File
-`launch/revolt_state_estimator.launch.py`:
-- Finds package share, loads `revolt_ekf.yaml` & `revolt_model.yaml`.
-- Spawns `revolt_ekf_node` with `output=screen`.
-
-Minimal snippet:
-```python
-Node(
-  package='revolt_state_estimator',
-  executable='revolt_ekf_node',
-  parameters=[config_ekf, config_model],
-)
-```
-More in `launch/revolt_state_estimator.launch.py`
+- **Measurement**:
+  - **GNSS fix**: `[x, y, z]` position in longitude, latitude, altitude (m)
+  - **GNSS heading**: `[yaw]` according to north (rad)
+  - **GNSS vel**: `[v_x, v_y, v_z]` velocity in ENU (m/s)
