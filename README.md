@@ -44,36 +44,13 @@ ros2 launch hardware_launch hardware.launch.py # thrusters, IMU, GNSS, etc.
 ros2 launch sensor_fusion_launch sensor_fusion.launch.py  # EKF state estimator
 ```
 
-Individual packages can also be launched on demand by specifying `<package> <launch_file>`.
-
 ---
 
 ## Packages
 
-### sensor_fusion_launch
-Main launch package that loads configuration files (`revolt_ekf.yaml`) and spawns the EKF node with required transforms.
-
-```bash
-ros2 launch sensor_fusion_launch sensor_fusion.launch.py
-```
-
 ### revolt_state_estimator
 
-This package hosts the EKF node that fuses incoming sensor and control signals into a unified state estimate:
-
-- **Subscriptions**:
-
-  - `/fix` (`NavSatFix`) for GNSS position
-  - `/heading` (`QuaternionStamped`) for GNSS heading
-  - `/vel` (`TwistStamped`) for GNSS velocity
-  - `/imu/data` (`Imu`) for orientation, acceleration, and angular rate
-
-- **Publications**:
-
-  - `/state_estimate/revolt` (`nav_msg/Odometry`)
-  - TF transform `ned → body`
-
-Within this package, a `state_estimate_tuning/` directory holds Python scripts for analyzing filter residuals and adjusting noise covariances—a convenient way to refine ES-EKF performance against logged data.
+This package hosts the ES-EKF node that fuses incoming sensor and control signals into a unified state estimate
 
 ---
 
