@@ -72,3 +72,9 @@ def gravity(lat):
     )
 
     return g
+
+def _skew(v):
+    vx, vy, vz = float(v[0]), float(v[1]), float(v[2])
+    return np.array([[ 0, -vz,  vy],
+                     [ vz,  0, -vx],
+                     [-vy, vx,   0]], dtype=float)

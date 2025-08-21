@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ROS2 node that runs an Error-state Extended Kalman Filter using INS and an IMU with an AHRS system.
-This is based on the Fossen 2nd edition book, chapter 14.4.2 - Error-stateKalman Filter Using Attitude Measurements.
+This is based on the Fossen 2nd edition book, chapter 14.4.2 - Error-state Kalman Filter Using Attitude Measurements.
 Fuses:
  - GNSS position (/fix)
  - GNSS heading (/heading)
@@ -11,8 +11,8 @@ Fuses:
     + yaw rate
     + linear velocity (integrated from linear acceleration)
 Publishes:
- - enu → body TF
- - ekf/state Odometry (x, y, yaw, v, yaw_rate)
+ - ned → body TF
+ - nav_msgs/Odometry with the state estimate
 """
 
 import rclpy
@@ -107,10 +107,6 @@ class RevoltEKF(Node):
         self.latest_velocity = None
         self.latest_heading = None
         self.latest_latitude = None  # For calculating gravity
-
-        self.latest_roll_rate = None
-        self.latest_pitch_rate = None
-        self.latest_yaw_rate = None
 
         # Error-state Extended Kalman Filter setup
         self.es_ekf = ErrorState_ExtendedKalmanFilter(
@@ -264,15 +260,15 @@ class RevoltEKF(Node):
         # self.tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=3600))
         # self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # AHRS angles
-        q = msg.orientation
-        roll_imu, pitch_imu, yaw_imu = tf_transformations.euler_from_quaternion(
-            [q.x, q.y, q.z, q.w]
-        )
-         # Force rpy to be in [-pi, pi)
-        roll_imu = ssa(roll_imu) 
-        pitch_imu = ssa(pitch_imu)
-        yaw_imu = ssa(yaw_imu)
+        # AHRS angles. These are not being used atm, but according to Fossens implementation it should.
+        # q = msg.orientation
+        # roll_imu, pitch_imu, yaw_imu = tf_transformations.euler_from_quaternion(
+        #     [q.x, q.y, q.z, q.w]
+        # )
+        #  # Force rpy to be in [-pi, pi)
+        # roll_imu = ssa(roll_imu) 
+        # pitch_imu = ssa(pitch_imu)
+        # yaw_imu = ssa(yaw_imu)
 
         # Specific force (acceleration in body frame)
         f_msg = msg.linear_acceleration
@@ -284,11 +280,6 @@ class RevoltEKF(Node):
         w_vec = np.array([w_msg.x, w_msg.y, w_msg.z]).reshape(3, 1)
         w_imu = w_vec - self.es_ekf.b_ars_ins
 
-        # This implementation does not estimate the attitude rate, so we use the IMU ARS directly
-        # To feed forward the yaw rate into the state estimate
-        self.latest_roll_rate = w_imu[0, 0]
-        self.latest_pitch_rate = w_imu[1, 0]
-        self.latest_yaw_rate = w_imu[2, 0]
 
         # Current time
         t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -302,13 +293,17 @@ class RevoltEKF(Node):
 
         # Rotation and transformation matrices from body to NED
         # R_bn = self.get_rotation_and_translation_from_tf("body", "ned")
-        R = Rzyx(roll_imu, pitch_imu, yaw_imu)
-        T = Tzyx(roll_imu, pitch_imu)
+        # Use EKF's own nominal attitude for linearization & mechanization to allow feedback
+        # According to fossen we should use the AHRS measurements, but this leads to numerical instability.
+        roll_est, pitch_est, yaw_est = self.es_ekf.theta_hat_ins.flatten()
+        R = Rzyx(roll_est, pitch_est, yaw_est)   # body -> NED
+        T = Tzyx(roll_est, pitch_est)            # Euler kinematics
+
 
         # System dynamics to implement the 15-state error-state model
         # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
         # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
-        A = self.es_ekf.generate_A(R, T)  # Eq. 14.192 in Fossen 2nd ed.
+        A = self.es_ekf.generate_A(R, T, f_imu)  # Eq. 14.192 in Fossen 2nd ed.
         E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
@@ -482,7 +477,7 @@ class RevoltEKF(Node):
             return
 
         # reject all‐zero bursts (bad data that sometimes comes up from linear velocity)
-        if msg.twist.linear.x == 0.0 or msg.twist.linear.y == 0.0:
+        if msg.twist.linear.x == 0.0 and msg.twist.linear.y == 0.0:
             return
 
         if not self.initialized:
