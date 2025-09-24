@@ -1,57 +1,67 @@
-# ReVolt SensorFusion Stack
+# ReVolt State Estimator
+A ROS 2 package providing an Error State Extended Kalman Filter (ES-EKF) for estimating a ship’s state (Pose and velocity) by fusing GNSS and IMU data.
 
-A unified ROS 2 workspace for advanced perception and estimation on the ReVolt vessel. Initially focused on fusing GNSS, and IMU into a robust state estimate, this stack will grow to include modules for target tracking, SLAM, computer vision, and more.
+**NOTE**: The current estimate is from NED -> IMU frame since tf2 is not working properly. In theory it is a simple static transformation, but tf2 is struggling to find these transforms so its very slowly. However with the current configuration of the IMU, the imu frame and body frame are the same so no transformation is needed. 
+
+tldr; if the imu changes position or orientation, the tf2 transform will need to be implemented, or a hardcoded transform.
 
 ---
 
 ## Overview
-The SensorFusion workspace integrates custom messages, launch scripts, and algorithm implementations to build a modular pipeline: from low‑level sensor inputs through mid‑level state estimation to high‑level autonomy. It currently provides an ES-EKF‑based state estimator producing vessel pose and velocity in NED. Future packages will slot in seamlessly for mapping, object detection, and navigation.
+The **ReVolt State Estimator** fuses:
+- **GNSS** (`/fix`, `/heading`, `/vel`)
+- **IMU** (`/imu/data`)
 
----
+It outputs:
+- **TF**: `NED → Body`
+- **Odometry**: `nav_msgs/Odometry` on topic `/state_estimate/revolt`
 
-## Workspace Setup
+## Usage
+Nodes will declare parameters from `config/revolt_ekf.yaml` on startup.
 
-To prepare your ROS 2 environment:
+## Nodes & Launch
+### Node: `revolt_ekf_node`
+- **Executable**: `revolt_ekf_node`
+- **Package**: `revolt_state_estimator`
+- **Launch**: `revolt_state_estimator.launch.py` loads ES-EKF config and starts the node.
 
-```bash
-# 1. Create workspace
-mkdir -p ~/my_ws/src
-cd ~/my_ws/src
+## Topics & Messages
+### Subscribed
+| Topic        | Type                     | Description                         |
+|--------------|--------------------------|-------------------------------------|
+| `/fix`       | `sensor_msgs/NavSatFix`  | GNSS position (lat, lon + covariance)|
+| `/heading`   | `geometry_msgs/QuaternionStamped` | GNSS heading (as quaternion) |
+| `/vel`       | `geometry_msgs/TwistStamped`      | GNSS linear velocity (world frame) |
+| `/imu/data`  | `sensor_msgs/Imu`        | IMU orientation, accel & gyro       |
 
-# 2. Clone dependencies and SensorFusion
-git clone <hardware-repo-url> Hardware     # low-level drivers
-git clone <revolt-messages-repo-url> RevoltMsgs
-git clone <sensorfusion-repo-url> SensorFusion
+### Published
+| Topic                         | Type                             | Description                  |
+|-------------------------------|----------------------------------|------------------------------|
+| `/state_estimate/revolt`      | `nav_msgs/Odometry`              | Estimated [p, v, Theta]      |
+| `NED → body` (TF)             | `geometry_msgs/TransformStamped` | Pose transform               |
 
-# 3. Build selected packages
-cd ~/my_ws
-colcon build --packages-select hardware_launch revolt_msgs revolt_state_estimator sensor_fusion_launch
+## Parameters & Configuration
+Configurations live in the `config/` folder:
+- **revolt_ekf.yaml**: Noise covariances and topic names
 
-# 4. Source setup
-source install/setup.bash
-```
+### EKF Parameters (`revolt_ekf`)
+| Name            | Type   | Units                                            | Description                                         |
+|-----------------|--------|--------------------------------------------------|-----------------------------------------------------|
+| `Q`             | [float]| process noise diag ([p, v, b_acc, Theta, b_ars]) | Covariance of ins model                             |
+| `R_head`        | [float]| rad²                                             | GNSS heading noise                                  |
+| `R_vel`         | [float]| [(m/s)², (m/s)², (m/s)²]                                           | GNSS velocity noise                                 |
 
-After this, all nodes, messages, and launches are available.
+The covariance of the fix is automatically taken from the /fix topic.
 
----
+## State & Measurement Vectors
+- **State** vector `x = [p, v, b_acc, Theta, b_ars]`:
+  - `p = [x, y, z]` – position in NED (m)
+  - `v = [v_x, v_y, v_z]` – velocity in NED (m/s)
+  - `b_acc` – bias in accelerometer (m/s²)
+  - `Theta = [phi, theta, psi]` – attitude in (rad)
+  - `b_ars` – bias in angular rate sensor (rad/s)
 
-## Launching SensorFusion
-
-First bring up hardware drivers, then start the estimation stack:
-
-```bash
-ros2 launch hardware_launch hardware.launch.py # thrusters, IMU, GNSS, etc.
-ros2 launch sensor_fusion_launch sensor_fusion.launch.py  # EKF state estimator
-```
-
----
-
-## Packages
-
-### revolt_state_estimator
-
-This package hosts the ES-EKF node that fuses incoming sensor and control signals into a unified state estimate
-
----
-
-Refer to individual package READMEs for detailed parameter descriptions and theoretical background. Happy fusing!
+- **Measurement**:
+  - **GNSS fix**: `[x, y, z]` position in longitude, latitude, altitude (m)
+  - **GNSS heading**: `[yaw]` according to north (rad)
+  - **GNSS vel**: `[v_x, v_y, v_z]` velocity in ENU (m/s)
