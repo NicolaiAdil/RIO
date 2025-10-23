@@ -7,24 +7,24 @@
       Q: [0.2, 0.2, 0.2, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1, 0.0001, 0.0001, 0.0001]
 
       # Measurement noise, the smaller the value, the more you trust your measurements
-
-      # R_head:
-      # σ_heading = 0.074655 [rad]
-      R_head: [0.05] # [roll, pitch yaw (rad)]
-
-      # R_vel:
-      # σ_velocity_x   = 0.002361 [m/s]
-      # σ_velocity_y   = 0.002684 [m/s]
       R_vel:  [0.3, 0.3, 0.3] # [v_x, v_y, v_z (m/s)]
 
       # Time constants for the bias models, chosen based on the matlab example
       T_acc: 100.0 # Eq. 14.195 in Fossen 2nd edition
       T_ars: 60.0 # 14.196 in Fossen 2nd edition
 
+      # Radar -> IMU extrinsic transformation
+      l_BR_B: [0.07872, 0.02159, -0.05919] # [x y z]
+      q_R_B: [0.9723699204, 0.0, -0.2334453639, 0.0] # [x y z w]
+
       # ROS2 PARAMETERS
       state_estimate_topic: '/state_estimate/revolt' # Publisher
       imu_topic: '/imu/data'
-      fix_topic: '/fix'
-      heading_topic: '/heading'
-      velocity_topic: '/vel'
+      # fix_topic: '/fix'
+      # heading_topic: '/heading'
+      radar_topic: '/radar/cloud'
+
+      radar_vr_sign: 1        # flip to -1 if your driver uses opposite Doppler sign
+      radar_sigma_vr: 0.35    # per-return Doppler noise (m/s), tune 0.25–0.6
+
   

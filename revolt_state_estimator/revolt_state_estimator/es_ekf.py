@@ -162,11 +162,11 @@ class ErrorState_ExtendedKalmanFilter:
         """
         O3 = np.zeros((3, 3)); I3 = np.eye(3)
         A = np.block([
-            [O3, I3,                 O3,                  O3,               O3],
-            [O3, O3,               -R_nb,        -R_nb @ _skew(f_b_nom),    O3],
+            [O3, I3,                 O3,          O3,                       O3],
+            [O3, O3,              -R_nb,        -R_nb @ _skew(f_b_nom),     O3], # Row 2, Col 4 is supposed to be O3 according to Fossen, but this didn't work
             [O3, O3, -(1/self.T_acc)*I3,          O3,                       O3],
-            [O3, O3,                 O3,          O3,                     -T_nb],
-            [O3, O3,                 O3,          O3,     -(1/self.T_ars)*I3],
+            [O3, O3,                 O3,          O3,                    -T_nb],
+            [O3, O3,                 O3,          O3,       -(1/self.T_ars)*I3],
         ])
         return A
 
@@ -180,11 +180,11 @@ class ErrorState_ExtendedKalmanFilter:
 
         E = np.block(
             [
-                [O3, O3, O3, O3],
-                [-R_bn, O3, O3, O3],
-                [O3, I3, O3, O3],
-                [O3, O3, -T_bn, O3],
-                [O3, O3, O3, I3],
+                [   O3, O3,    O3, O3],
+                [-R_bn, O3,    O3, O3],
+                [   O3, I3,    O3, O3],
+                [   O3, O3, -T_bn, O3],
+                [   O3, O3,    O3, I3],
             ]
         )
 
