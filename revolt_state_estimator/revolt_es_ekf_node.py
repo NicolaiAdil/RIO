@@ -46,7 +46,7 @@ class RevoltEKF(Node):
         # EKF Parameters
         self.declare_parameter("revolt_ekf.Q", [0.0] * 12)  # []
         self.declare_parameter(
-            "revolt_ekf.R_vel", [0.0, 0.0, 0.0]
+            "revolt_ekf.radar_sigma_vr", 0.0
         )  # [v_x, v_y, v_z (m/s)]
         self.declare_parameter(
             "revolt_ekf.T_acc", 1000.0
@@ -57,19 +57,21 @@ class RevoltEKF(Node):
 
         # Extrinsic transformation from radar to IMU
         self.declare_parameter(
-            "l_BR_B", [0.0, 0.0, 0.0]
+            "revolt_ekf.l_BR_B", [0.0, 0.0, 0.0]
         )
         self.declare_parameter(
-            "q_R_B", [0.0, 0.0, 0.0, 1.0]
+            "revolt_ekf.q_R_B", [0.0, 0.0, 0.0, 1.0]
         )
+        self.declare_parameter("radar_vr_sign", +1)
 
         _Q = self.get_parameter("revolt_ekf.Q").value
         # _R_head = self.get_parameter("revolt_ekf.R_head").value
-        _R_vel = self.get_parameter("revolt_ekf.R_vel").value
+        _radar_sigma_vr = self.get_parameter("revolt_ekf.radar_sigma_vr").value
         _T_acc = self.get_parameter("revolt_ekf.T_acc").value
         _T_ars = self.get_parameter("revolt_ekf.T_ars").value
-        _l_BR_B = self.get_parameter("l_BR_B").value
-        _q_R_B = self.get_parameter("q_R_B").value
+        _l_BR_B = self.get_parameter("revolt_ekf.l_BR_B").value
+        _q_R_B = self.get_parameter("revolt_ekf.q_R_B").value
+        _radar_vr_sign = self.get_parameter("radar_vr_sign").value
 
         # ROS 2 Parameters
         # Publish topics
@@ -80,7 +82,7 @@ class RevoltEKF(Node):
         self.declare_parameter("revolt_ekf.imu_topic", "/imu/data")
         # self.declare_parameter("revolt_ekf.fix_topic", "/fix")
         # self.declare_parameter("revolt_ekf.heading_topic", "/heading")
-        self.declare_parameter("revolt_ekf.velocity_topic", "/vel")
+        self.declare_parameter("revolt_ekf.radar_topic", "/vel")
         _state_estimate_topic = self.get_parameter(
             "revolt_ekf.state_estimate_topic"
         ).value
@@ -91,12 +93,8 @@ class RevoltEKF(Node):
         qx,qy,qz,qw = _q_R_B
         self.R_RI = quat_xyzw_to_R(qx,qy,qz,qw)   # IMU->Radar
         self.R_IR = self.R_RI.T                   # Radar->IMU
-
-        self.declare_parameter("radar_vr_sign", +1)
-        self.vr_sign = int(self.get_parameter("radar_vr_sign").value)
-
-        self.declare_parameter("radar_sigma_vr", 0.35)
-        self.sigma_vr = float(self.get_parameter("radar_sigma_vr").value)
+        self.vr_sign = int(_radar_vr_sign)
+        self.sigma_vr = float(_radar_sigma_vr)
 
         # EKF Setup ----------
         self.new_velocity_measurement = False
@@ -110,7 +108,6 @@ class RevoltEKF(Node):
 
         # Noise models
         self.Q = np.diag(_Q)
-        self.R_vel = np.diag(_R_vel)
 
         # Latest measurements
         self.latest_velocity = None
@@ -147,10 +144,7 @@ class RevoltEKF(Node):
             f"EKF Parameters:                    \n"
             f" Q:                                \n"
             f" {self.Q}                          \n"
-            f" R_head:                           \n"
-            f" {self.R_head}                     \n"
-            f" R_vel:                            \n"
-            f" {self.R_vel}                      \n"
+            f" sigma_vr: {self.sigma_vr}          \n"
             f" T_acc: {_T_acc}               \n"
             f" T_ars: {_T_ars}               \n"
             f"                                   \n"
@@ -311,38 +305,51 @@ class RevoltEKF(Node):
         Ed = E * dt
 
         # Checking which aiding measurements we have
-        O3 = np.zeros((3, 3))
-        I3 = np.eye(3)
-        zs, Cs, Rs = [], [], []
+        # O3 = np.zeros((3, 3))
+        # I3 = np.eye(3)
+        # zs, Cs, Rs = [], [], []
 
         # Radar velocity
         if self.new_velocity_measurement:
             e, H = self.calculate_radar_velocity_error_and_H()
+            N = e.size  # number of radar returns
+    
+            last_delta_x_hat = None
+            last_P_hat = None
 
-            print("Radar velocity error:", e)
+            for i in range(N):
+                # Scalar residual z_i (shape 1x1)
+                z_i = np.array([[e[i]]], dtype=np.float64)
 
-            # C_vel = np.hstack([O3, I3, O3, O3, O3])
-            zs.append(e)
-            Cs.append(H)
-            Rs.append(self.R_vel)
+                # Single-row measurement matrix C_i (shape 1x15)
+                C_i = H[i:i+1, :]
+
+                # Scalar measurement covariance R_i (shape 1x1)
+                R_i = np.array([[self.sigma_vr**2]], dtype=np.float64)
+
+                # Corrector: update error-state covariance using the single scalar
+                delta_x_hat_i, P_hat_i = self.es_ekf.correct(z_i, C_i, R_i)
+
+                # INS reset using the single-measurement correction
+                x_hat_ins_i = self.es_ekf.update_state_estimate(delta_x_hat_i)
+
+                # Keep the latest (for publishing after the loop)
+                last_delta_x_hat = delta_x_hat_i
+                last_P_hat = P_hat_i
+            # Corrector: delta_x_hat[k] and P_hat[k]
+            # delta_x_hat, P_hat = self.es_ekf.correct(z_total, Cd_total, R_noise)
+
+            # # INS reset: x_ins[k]
+            # x_hat_ins = self.es_ekf.update_state_estimate(delta_x_hat)
+
+            # # Publish the state estimate
+            # self._publish_state(x_hat_ins, P_hat)
+
+            if last_delta_x_hat is not None and last_P_hat is not None:
+                self._publish_state(self.es_ekf.x_hat_ins, last_P_hat)
+
             self.new_velocity_measurement = False
 
-        # If we have any aiding measurements, we perform the correction step, if not we just propagate the state.
-        if zs:
-            z_total = np.vstack(zs)  # combined measurement vector
-            Cd_total = np.vstack(Cs)  # combined measurement matrix, Cd = C
-            R_noise = scipy.linalg.block_diag(
-                *Rs
-            )  # combined measurement noise covariance matrix
-
-            # Corrector: delta_x_hat[k] and P_hat[k]
-            delta_x_hat, P_hat = self.es_ekf.correct(z_total, Cd_total, R_noise)
-
-            # INS reset: x_ins[k]
-            x_hat_ins = self.es_ekf.update_state_estimate(delta_x_hat)
-
-            # Publish the state estimate
-            self._publish_state(x_hat_ins, P_hat)
 
         else:
             # No aiding measurements
@@ -352,7 +359,7 @@ class RevoltEKF(Node):
         delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Ed)
 
         # INS propagation: x_hat_ins[k+1]
-        g_n = (np.array([0.0, 0.0, gravity(self.latest_latitude)])).reshape(
+        g_n = (np.array([0.0, 0.0, 9.81])).reshape(
             3, 1
         )  # gravity vector in navigation frame
         x_hat_ins = self.es_ekf.ins_propagation(
@@ -368,7 +375,7 @@ class RevoltEKF(Node):
         self._publish_state(x_hat_ins, P_hat_prior)
 
     def update_radar(self, msg: PointCloud2, min_range=1e-3):
-        """Extract LOS unit vectors (in radar frame R) and per-return radial speeds."""
+        """Extract bearing unit vectors (in radar frame R) and per-return radial speeds."""
         U_list, vr_list = [], []
         for x, y, z, v in pc2.read_points(msg, field_names=("x", "y", "z", "velocity"), skip_nans=True):
             r = np.sqrt(x*x + y*y + z*z)

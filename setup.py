@@ -6,7 +6,7 @@ package_name = 'revolt_state_estimator'
 setup(
     name=package_name,
     version='1.0.0',
-    packages=find_packages(where='.'),  # picks up revolt_state_estimator and state_estimate_tuning
+    packages=find_packages(where='.', include=['revolt_state_estimator*', 'state_estimate_tuning*']),  # picks up revolt_state_estimator and state_estimate_tuning
     include_package_data=True,
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),

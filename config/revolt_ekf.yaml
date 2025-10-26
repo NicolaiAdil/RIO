@@ -19,7 +19,7 @@
 
       # ROS2 PARAMETERS
       state_estimate_topic: '/state_estimate/revolt' # Publisher
-      imu_topic: '/imu/data'
+      imu_topic: '/vectornav_driver_node/imu/data'
       # fix_topic: '/fix'
       # heading_topic: '/heading'
       radar_topic: '/radar/cloud'
