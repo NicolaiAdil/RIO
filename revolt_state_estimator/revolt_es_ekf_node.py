@@ -155,6 +155,7 @@ class RevoltEKF(Node):
             f"Radar topic: {_radar_topic} \n"
             f"Extrinsic transformation (l_BR_B): {_l_BR_B} \n"
             f"Extrinsic transformation (q_R_B): {_q_R_B} \n"
+            f"Radar vr sign: {_radar_vr_sign}      \n"
             f"                                   \n"
         )
         self.get_logger().info(
@@ -283,6 +284,9 @@ class RevoltEKF(Node):
             return
 
         dt = t - self.imu_last_stamp
+        if dt <= 0.0 or dt > 0.1:
+            return
+
         self.imu_last_stamp = t
 
         # Rotation and transformation matrices from body to NED
@@ -297,7 +301,7 @@ class RevoltEKF(Node):
         # System dynamics to implement the 15-state error-state model
         # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
         # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
-        A = self.es_ekf.generate_A(R, T, f_imu)  # Eq. 14.192 in Fossen 2nd ed.
+        A = self.es_ekf.generate_A(R, T, f_imu, w_imu)  # Eq. 14.192 in Fossen 2nd ed.
         E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
@@ -309,6 +313,23 @@ class RevoltEKF(Node):
         # I3 = np.eye(3)
         # zs, Cs, Rs = [], [], []
 
+        # Predictor: P_hat_prior[k+1]
+        delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Ed)
+
+        # INS propagation: x_hat_ins[k+1]
+        g_n = (np.array([0.0, 0.0, 9.81])).reshape(
+            3, 1
+        )  # gravity vector in navigation frame
+        x_hat_ins = self.es_ekf.ins_propagation(
+            self.es_ekf.x_hat_ins,
+            dt,
+            R,
+            T,
+            f_imu,
+            w_imu,
+            g_n=g_n,
+        )
+
         # Radar velocity
         if self.new_velocity_measurement:
             e, H = self.calculate_radar_velocity_error_and_H()
@@ -318,8 +339,9 @@ class RevoltEKF(Node):
             last_P_hat = None
 
             for i in range(N):
-                # Scalar residual z_i (shape 1x1)
+                # Scalar residual z_i (shape 3x1)
                 z_i = np.array([[e[i]]], dtype=np.float64)
+                # print(f"Radar vel residual z_i: {z_i.flatten()}")
 
                 # Single-row measurement matrix C_i (shape 1x15)
                 C_i = H[i:i+1, :]
@@ -354,31 +376,15 @@ class RevoltEKF(Node):
         else:
             # No aiding measurements
             self.es_ekf.P_hat = self.es_ekf.P_hat_prior
-
-        # Predictor: P_hat_prior[k+1]
-        delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Ed)
-
-        # INS propagation: x_hat_ins[k+1]
-        g_n = (np.array([0.0, 0.0, 9.81])).reshape(
-            3, 1
-        )  # gravity vector in navigation frame
-        x_hat_ins = self.es_ekf.ins_propagation(
-            self.es_ekf.x_hat_ins,
-            dt,
-            R,
-            T,
-            f_imu,
-            w_imu,
-            g_n=g_n,
-        )
         # Publish the state estimate
         self._publish_state(x_hat_ins, P_hat_prior)
 
-    def update_radar(self, msg: PointCloud2, min_range=1e-3):
+    def update_radar(self, msg: PointCloud2, min_range=1e-2):
         """Extract bearing unit vectors (in radar frame R) and per-return radial speeds."""
         U_list, vr_list = [], []
         for x, y, z, v in pc2.read_points(msg, field_names=("x", "y", "z", "velocity"), skip_nans=True):
             r = np.sqrt(x*x + y*y + z*z)
+            print(f"Radar point r: {r}")
             if r < min_range:
                 continue
             U_list.append([x/r, y/r, z/r])

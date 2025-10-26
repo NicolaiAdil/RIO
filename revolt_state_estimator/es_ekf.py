@@ -100,7 +100,7 @@ class ErrorState_ExtendedKalmanFilter:
                 f"Shape mismatch: delta_x_hat {delta_x_hat.shape} does not match x_hat_ins {self.x_hat_ins.shape}"
             )
 
-        self.x_hat_ins += delta_x_hat
+        self.x_hat_ins += delta_x_hat # TODO: if angle is in quaternion we need to add using lie theory.
         self.delta_x_hat = np.zeros(
             (self.num_states, 1)
         )  # Reset error state after update
@@ -133,9 +133,13 @@ class ErrorState_ExtendedKalmanFilter:
         # self.theta_hat_ins = np.array([[roll_wrapped], [pitch_wrapped], [yaw_wrapped]]).reshape(3, 1)
 
 
-        self.theta_hat_ins = x_hat[9:12] + dt * (
+        theta_hat_unwrapped = x_hat[9:12] + dt * (
             T_bn @ (w_imu_b)
         )  # orientation update
+
+        self.theta_hat_ins = np.array([[ssa(theta_hat_unwrapped[0,0])],
+                                       [ssa(theta_hat_unwrapped[1,0])],
+                                       [ssa(theta_hat_unwrapped[2,0])]])
 
         self.x_hat_ins = np.concatenate(
             [
@@ -155,37 +159,25 @@ class ErrorState_ExtendedKalmanFilter:
         """
         return self.P_hat_prior @ Cd.T @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
 
-    def generate_A(self, R_nb, T_nb, f_b_nom):
-        """
-        Linearized error dynamics (Fossen 2nd, §14.4.2):
-        δv̇^n = -R_nb δb_a^b  - R_nb [f_b_nom]_x δΘ
-        """
+    def generate_A(self, R_nb, T_nb, f_b_nom, w_b_nom):
         O3 = np.zeros((3, 3)); I3 = np.eye(3)
         A = np.block([
-            [O3, I3,                 O3,          O3,                       O3],
-            [O3, O3,              -R_nb,        -R_nb @ _skew(f_b_nom),     O3], # Row 2, Col 4 is supposed to be O3 according to Fossen, but this didn't work
-            [O3, O3, -(1/self.T_acc)*I3,          O3,                       O3],
-            [O3, O3,                 O3,          O3,                    -T_nb],
-            [O3, O3,                 O3,          O3,       -(1/self.T_ars)*I3],
+            [O3, I3,                      O3,                 O3,                 O3],
+            [O3, O3,  -R_nb @ _skew(f_b_nom),              -R_nb,                 O3],
+            [O3, O3,                      O3, -(1/self.T_acc)*I3,                 O3],  
+            [O3, O3,        - _skew(w_b_nom),                 O3,                -I3],
+            [O3, O3,                      O3,                 O3, -(1/self.T_ars)*I3],
         ])
         return A
 
     def generate_E(self, R_bn, T_bn):
-        """
-        Generate the process noise matrix E.
-        Defined in Fossen 2nd, eq. 14.193.
-        """
-        O3 = np.zeros((3, 3))  # 3x3 zero matrix
-        I3 = np.eye(3)  # 3x3 identity matrix
-
-        E = np.block(
-            [
-                [   O3, O3,    O3, O3],
-                [-R_bn, O3,    O3, O3],
-                [   O3, I3,    O3, O3],
-                [   O3, O3, -T_bn, O3],
-                [   O3, O3,    O3, I3],
-            ]
-        )
-
+        O3 = np.zeros((3, 3)); I3 = np.eye(3)
+        E = np.block([
+            [   O3,  O3,    O3, O3],
+            [-R_bn,  O3,    O3, O3],
+            [   O3,  O3,    I3, O3], 
+            [   O3, -I3,    O3, O3],
+            [   O3,  O3,    O3, I3],
+        ])
         return E
+
