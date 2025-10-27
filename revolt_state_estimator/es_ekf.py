@@ -162,21 +162,21 @@ class ErrorState_ExtendedKalmanFilter:
     def generate_A(self, R_nb, T_nb, f_b_nom, w_b_nom):
         O3 = np.zeros((3, 3)); I3 = np.eye(3)
         A = np.block([
-            [O3, I3,                      O3,                 O3,                 O3],
-            [O3, O3,  -R_nb @ _skew(f_b_nom),              -R_nb,                 O3],
-            [O3, O3,                      O3, -(1/self.T_acc)*I3,                 O3],  
-            [O3, O3,        - _skew(w_b_nom),                 O3,                -I3],
-            [O3, O3,                      O3,                 O3, -(1/self.T_ars)*I3],
+            [O3,  I3,                 O3,                     O3,                 O3],
+            [O3,  O3,              -R_nb, -R_nb @ _skew(f_b_nom),                 O3],
+            [O3,  O3, -(1/self.T_acc)*I3,                     O3,                 O3],
+            [O3,  O3,                 O3,        -_skew(w_b_nom),                -I3],
+            [O3,  O3,                 O3,                     O3, -(1/self.T_ars)*I3],
         ])
         return A
 
-    def generate_E(self, R_bn, T_bn):
+    def generate_E(self, R_nb, T_bn):
         O3 = np.zeros((3, 3)); I3 = np.eye(3)
         E = np.block([
             [   O3,  O3,    O3, O3],
-            [-R_bn,  O3,    O3, O3],
-            [   O3,  O3,    I3, O3], 
-            [   O3, -I3,    O3, O3],
+            [-R_nb,  O3,    O3, O3],
+            [   O3,  I3,    O3, O3], 
+            [   O3,  O3,   -I3, O3],
             [   O3,  O3,    O3, I3],
         ])
         return E

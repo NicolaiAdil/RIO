@@ -284,10 +284,9 @@ class RevoltEKF(Node):
             return
 
         dt = t - self.imu_last_stamp
+        self.imu_last_stamp = t
         if dt <= 0.0 or dt > 0.1:
             return
-
-        self.imu_last_stamp = t
 
         # Rotation and transformation matrices from body to NED
         # R_bn = self.get_rotation_and_translation_from_tf("body", "ned")
@@ -433,7 +432,7 @@ class RevoltEKF(Node):
 
         term = R_IW @ v_W                     # (IRW WvWI)
         S = - (self.MU_R @ (R_RI @ _skew(term.flatten())))   # shape (N,3)
-        H[:, 9:12] = S
+        H[:, 9:12] = S 
 
         return e, H
 
