@@ -349,10 +349,10 @@ class RevoltEKF(Node):
                 # Scalar measurement covariance R_i (shape 1x1)
                 R_i = np.array([[self.sigma_vr**2]], dtype=np.float64)
 
-                # Corrector: update error-state covariance using the single scalar
+                # Corrector: delta_x_hat[k] and P_hat[k]
                 delta_x_hat_i, P_hat_i = self.es_ekf.correct(z_i, C_i, R_i)
 
-                # INS reset using the single-measurement correction
+                # INS reset: x_ins[k]
                 x_hat_ins_i = self.es_ekf.update_state_estimate(delta_x_hat_i)
 
                 # Keep the latest (for publishing after the loop)
