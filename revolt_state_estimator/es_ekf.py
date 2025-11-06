@@ -71,15 +71,15 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.delta_x_hat_prior, self.P_hat_prior
 
-    def correct(self, z, Cd, R):
+    def correct(self, z, H, R):
         """
         Update step: measurement z.
         """
 
         # KF gain: K[k]
-        K = self.calculate_kalman_gain(Cd, R)
-        IKC = np.eye(self.num_states) - K @ Cd
-        innovation = z - Cd @ self.delta_x_hat_prior
+        K = self.calculate_kalman_gain(H, R)
+        IKC = np.eye(self.num_states) - K @ H
+        innovation = z - H @ self.delta_x_hat_prior
 
         self.delta_x_hat = self.delta_x_hat_prior + K @ innovation
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R @ K.T
@@ -153,11 +153,11 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.x_hat_ins
 
-    def calculate_kalman_gain(self, Cd, R):
+    def calculate_kalman_gain(self, H, R):
         """
         Compute the Kalman gain.
         """
-        return self.P_hat_prior @ Cd.T @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
+        return self.P_hat_prior @ H.T @ np.linalg.inv(H @ self.P_hat_prior @ H.T + R)
     
     # Solas implementation
 
