@@ -331,15 +331,16 @@ class RevoltEKF(Node):
 
         # Radar velocity
         if self.new_velocity_measurement:
-            e, H = self.calculate_radar_velocity_error_and_H()
-            N = e.size  # number of radar returns
+            _, H = self.calculate_radar_velocity_error_and_H()
+            radar_measurements = self.VR_meas
+            N = radar_measurements.size  # number of radar returns
     
             last_delta_x_hat = None
             last_P_hat = None
 
             for i in range(N):
                 # Scalar residual z_i (shape 3x1)
-                z_i = np.array([[e[i]]], dtype=np.float64)
+                z_i = np.array([[radar_measurements[i]]], dtype=np.float64)
                 # print(f"Radar vel residual z_i: {z_i.flatten()}")
 
                 # Single-row measurement matrix C_i (shape 1x15)
@@ -431,7 +432,7 @@ class RevoltEKF(Node):
 
 
         term = R_IW @ v_W                     # (IRW WvWI)
-        S = - (self.MU_R @ (R_RI @ _skew(term.flatten())))   # shape (N,3)
+        S = (self.MU_R @ (R_RI @ _skew(term.flatten())))   # shape (N,3)
         H[:, 9:12] = S 
 
         return e, H

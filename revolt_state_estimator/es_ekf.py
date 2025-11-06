@@ -158,6 +158,8 @@ class ErrorState_ExtendedKalmanFilter:
         Compute the Kalman gain.
         """
         return self.P_hat_prior @ Cd.T @ np.linalg.inv(Cd @ self.P_hat_prior @ Cd.T + R)
+    
+    # Solas implementation
 
     def generate_A(self, R_nb, T_nb, f_b_nom, w_b_nom):
         O3 = np.zeros((3, 3)); I3 = np.eye(3)
@@ -180,4 +182,41 @@ class ErrorState_ExtendedKalmanFilter:
             [   O3,  O3,    O3, I3],
         ])
         return E
+
+    #Fossens implementation
+
+    # def generate_A(self, R_nb, T_nb, f_b_nom):
+    #     """
+    #     Linearized error dynamics (Fossen 2nd, §14.4.2):
+    #     δv̇^n = -R_nb δb_a^b  - R_nb [f_b_nom]_x δΘ
+    #     """
+    #     O3 = np.zeros((3, 3)); I3 = np.eye(3)
+    #     A = np.block([
+    #         [O3, I3,                 O3,                  O3,               O3],
+    #         [O3, O3,               -R_nb,        -R_nb @ _skew(f_b_nom),    O3],
+    #         [O3, O3, -(1/self.T_acc)*I3,          O3,                       O3],
+    #         [O3, O3,                 O3,          O3,                     -T_nb],
+    #         [O3, O3,                 O3,          O3,     -(1/self.T_ars)*I3],
+    #     ])
+    #     return A
+
+    # def generate_E(self, R_bn, T_bn):
+    #     """
+    #     Generate the process noise matrix E.
+    #     Defined in Fossen 2nd, eq. 14.193.
+    #     """
+    #     O3 = np.zeros((3, 3))  # 3x3 zero matrix
+    #     I3 = np.eye(3)  # 3x3 identity matrix
+
+    #     E = np.block(
+    #         [
+    #             [O3, O3, O3, O3],
+    #             [-R_bn, O3, O3, O3],
+    #             [O3, I3, O3, O3],
+    #             [O3, O3, -T_bn, O3],
+    #             [O3, O3, O3, I3],
+    #         ]
+    #     )
+
+    #     return E
 
