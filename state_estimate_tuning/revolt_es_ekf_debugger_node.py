@@ -3,8 +3,8 @@
 EKF Debug Plotter (ROS 2 Jazzy)
 
 Compares:
-- Yaw: EKF (Odometry) vs LIO truth (/lio/pose), plus IMU(AHRS)
-- Roll/Pitch: IMU vs EKF vs LIO truth
+- Yaw: EKF (Odometry) vs LIO truth (/lio/pose)
+- Roll/Pitch: EKF vs LIO truth
 Also shows:
 - Position (N–E, NED) tracks: EKF vs LIO truth
 - Velocity panel: EKF only (truth PoseStamped has no velocity)
@@ -17,7 +17,6 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped
 import tf_transformations
 import matplotlib.pyplot as plt
@@ -67,15 +66,13 @@ class EKFDebugPlotter(Node):
 
         # Parameters
         self.declare_parameter('topic_state', '/state_estimate/revolt')
-        self.declare_parameter('topic_imu', '/vectornav_driver_node/imu/data')
         self.declare_parameter('topic_truth_pose', '/lio/pose')
-        self.declare_parameter('truth_frame', 'ENU')  # 'ENU' or 'NED'
+        self.declare_parameter('truth_frame', 'NED')  # 'ENU' or 'NED'
         self.declare_parameter('window_secs', 300.0)
         self.declare_parameter('plot_rate_hz', 5.0)
         self.declare_parameter('flip_warn_thresh_deg', 150.0)
 
         self.topic_state = self.get_parameter('topic_state').value
-        self.topic_imu = self.get_parameter('topic_imu').value
         self.topic_truth_pose = self.get_parameter('topic_truth_pose').value
         self.truth_frame = str(self.get_parameter('truth_frame').value).upper()
         self.window_secs = float(self.get_parameter('window_secs').value)
@@ -88,10 +85,7 @@ class EKFDebugPlotter(Node):
         # Per-series time/value histories (each with bounded length)
         self.t_yaw_est, self.yaw_est_hist = deque(), deque()
         self.t_yaw_truth, self.yaw_truth_hist = deque(), deque()
-        self.t_yaw_imu, self.yaw_imu_hist = deque(), deque()
 
-        self.t_roll_imu, self.roll_imu_hist = deque(), deque()
-        self.t_pitch_imu, self.pitch_imu_hist = deque(), deque()
         self.t_roll_est, self.roll_est_hist = deque(), deque()
         self.t_pitch_est, self.pitch_est_hist = deque(), deque()
         self.t_roll_truth, self.roll_truth_hist = deque(), deque()
@@ -111,11 +105,9 @@ class EKFDebugPlotter(Node):
         # Unwrap trackers
         self._last_yaw_est = None
         self._last_yaw_truth = None
-        self._last_yaw_imu = None
 
         # Subscribers
         self.create_subscription(Odometry, self.topic_state, self.cb_state, 10)
-        self.create_subscription(Imu, self.topic_imu, self.cb_imu, 20)
         self.create_subscription(PoseStamped, self.topic_truth_pose, self.cb_truth_pose, 10)
 
         # Figure + timer
@@ -126,7 +118,6 @@ class EKFDebugPlotter(Node):
             "EKF Debug Plotter started.\n"
             f" Subscribed to:\n"
             f"  state:     {self.topic_state}\n"
-            f"  imu:       {self.topic_imu}\n"
             f"  truthPose: {self.topic_truth_pose}  (frame={self.truth_frame})\n"
             f" Window = {self.window_secs}s, plot_rate = {1.0/self.plot_dt:.1f} Hz"
         )
@@ -163,19 +154,6 @@ class EKFDebugPlotter(Node):
         vE = float(msg.twist.twist.linear.y)
         self._append_tv(self.t_vN_est, self.vN_est, t, vN)
         self._append_tv(self.t_vE_est, self.vE_est, t, vE)
-
-    def cb_imu(self, msg: Imu):
-        t = self._now_s()
-        q = msg.orientation
-        r, p, y = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        r, p, y = ssa(r), ssa(p), ssa(y)
-
-        self._append_tv(self.t_roll_imu, self.roll_imu_hist, t, r)
-        self._append_tv(self.t_pitch_imu, self.pitch_imu_hist, t, p)
-
-        un = unwrap_append(self._last_yaw_imu, y)
-        self._last_yaw_imu = un
-        self._append_tv(self.t_yaw_imu, self.yaw_imu_hist, t, un)
 
     def cb_truth_pose(self, msg: PoseStamped):
         t = self._now_s()
@@ -220,9 +198,9 @@ class EKFDebugPlotter(Node):
         self.ax_head.set_title("Yaw vs Time")
         self.ax_head.set_ylabel("Yaw [deg]")
         self.ax_head.set_xlabel("Time [s]")
-        self.l_est_head,   = self.ax_head.plot([], [], label="EKF yaw")
-        self.l_truth_head, = self.ax_head.plot([], [], label="LIO truth yaw")
-        self.l_imu_head,   = self.ax_head.plot([], [], label="IMU(AHRS) yaw")
+        # EKF thin, LIO thicker
+        self.l_est_head,   = self.ax_head.plot([], [], label="EKF yaw", linewidth=1.2)
+        self.l_truth_head, = self.ax_head.plot([], [], label="LIO truth yaw", linewidth=2.4)
         self.flip_scatter   = self.ax_head.scatter([], [], marker='x', label="Flip?")
         self.ax_head.legend(loc='best'); self.ax_head.grid(True)
 
@@ -230,12 +208,11 @@ class EKFDebugPlotter(Node):
         self.ax_rp = self.fig.add_subplot(gs[1, 0])
         self.ax_rp.set_title("Roll & Pitch vs Time")
         self.ax_rp.set_ylabel("Angle [deg]"); self.ax_rp.set_xlabel("Time [s]")
-        self.l_roll_imu,   = self.ax_rp.plot([], [], label="IMU roll")
-        self.l_pitch_imu,  = self.ax_rp.plot([], [], label="IMU pitch")
-        self.l_roll_est,   = self.ax_rp.plot([], [], label="EKF roll")
-        self.l_pitch_est,  = self.ax_rp.plot([], [], label="EKF pitch")
-        self.l_roll_truth, = self.ax_rp.plot([], [], label="LIO roll")
-        self.l_pitch_truth,= self.ax_rp.plot([], [], label="LIO pitch")
+        # EKF thin, LIO thicker
+        self.l_roll_est,   = self.ax_rp.plot([], [], label="EKF roll", linewidth=1.2)
+        self.l_pitch_est,  = self.ax_rp.plot([], [], label="EKF pitch", linewidth=1.2)
+        self.l_roll_truth, = self.ax_rp.plot([], [], label="LIO roll", linewidth=2.4)
+        self.l_pitch_truth,= self.ax_rp.plot([], [], label="LIO pitch", linewidth=2.4)
         self.ax_rp.legend(loc='best'); self.ax_rp.grid(True)
 
         # Position NE
@@ -283,11 +260,9 @@ class EKFDebugPlotter(Node):
         # ---- Yaw (deg) ----
         te, ye = self._finite_xy(self.t_yaw_est,   np.degrees(self.yaw_est_hist))
         tt, yt = self._finite_xy(self.t_yaw_truth, np.degrees(self.yaw_truth_hist))
-        ti, yi = self._finite_xy(self.t_yaw_imu,   np.degrees(self.yaw_imu_hist))
 
         self.l_est_head.set_data(te, ye)
         self.l_truth_head.set_data(tt, yt)
-        self.l_imu_head.set_data(ti, yi)
 
         # Flip markers
         flips_t = np.asarray(self.flip_marks_t)
@@ -305,15 +280,11 @@ class EKFDebugPlotter(Node):
         self.ax_head.autoscale_view(scalex=False, scaley=True)
 
         # ---- Roll/Pitch (deg) ----
-        tr_i, rr_i = self._finite_xy(self.t_roll_imu,   np.degrees(self.roll_imu_hist))
-        tp_i, pp_i = self._finite_xy(self.t_pitch_imu,  np.degrees(self.pitch_imu_hist))
         tr_e, rr_e = self._finite_xy(self.t_roll_est,   np.degrees(self.roll_est_hist))
         tp_e, pp_e = self._finite_xy(self.t_pitch_est,  np.degrees(self.pitch_est_hist))
         tr_t, rr_t = self._finite_xy(self.t_roll_truth, np.degrees(self.roll_truth_hist))
         tp_t, pp_t = self._finite_xy(self.t_pitch_truth,np.degrees(self.pitch_truth_hist))
 
-        self.l_roll_imu.set_data(tr_i, rr_i)
-        self.l_pitch_imu.set_data(tp_i, pp_i)
         self.l_roll_est.set_data(tr_e, rr_e)
         self.l_pitch_est.set_data(tp_e, pp_e)
         self.l_roll_truth.set_data(tr_t, rr_t)

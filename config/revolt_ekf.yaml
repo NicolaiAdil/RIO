@@ -25,6 +25,6 @@
       radar_topic: '/radar/cloud'
 
       radar_vr_sign: 1        # flip to -1 if your driver uses opposite Doppler sign
-      radar_sigma_vr: 0.35    # per-return Doppler noise (m/s), tune 0.25–0.6
+      radar_sigma_vr: 1.0    # per-return Doppler noise (m/s), tune 0.25–0.6
 
   

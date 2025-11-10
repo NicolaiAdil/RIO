@@ -139,6 +139,10 @@ class RevoltEKF(Node):
             suppress=True,  # so small floats don’t go to scientific notation
         )
 
+        # self.e_mean = 0.0
+        # self.e_std = 0.0
+        # self.i = 0
+
         self.get_logger().info(
             f"                                   \n"
             f"EKF Parameters:                    \n"
@@ -305,7 +309,7 @@ class RevoltEKF(Node):
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
         Ad = np.eye(self.es_ekf.num_states) + A * dt
-        Ed = E * dt
+        Qd = (E @ self.Q @ E.T) * dt
 
         # Checking which aiding measurements we have
         # O3 = np.zeros((3, 3))
@@ -313,13 +317,13 @@ class RevoltEKF(Node):
         # zs, Cs, Rs = [], [], []
 
         # Predictor: P_hat_prior[k+1]
-        delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Ed)
+        delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Qd)
 
         # INS propagation: x_hat_ins[k+1]
         g_n = (np.array([0.0, 0.0, 9.81])).reshape(
             3, 1
         )  # gravity vector in navigation frame
-        x_hat_ins = self.es_ekf.ins_propagation(
+        self.es_ekf.ins_propagation(
             self.es_ekf.x_hat_ins,
             dt,
             R,
@@ -331,63 +335,84 @@ class RevoltEKF(Node):
 
         # Radar velocity
         if self.new_velocity_measurement:
-            _, H = self.calculate_radar_velocity_error_and_H()
-            radar_measurements = self.VR_meas
-            N = radar_measurements.size  # number of radar returns
-    
-            last_delta_x_hat = None
-            last_P_hat = None
+            # e, H = self.calculate_radar_velocity_error_and_H()
+            # radar_measurements = self.VR_meas
+            # N = e.size
 
-            for i in range(N):
-                # Scalar residual z_i (shape 3x1)
-                z_i = np.array([[radar_measurements[i]]], dtype=np.float64)
-                # print(f"Radar vel residual z_i: {z_i.flatten()}")
+            # save mean error e, and standard deviation for debugging
 
-                # Single-row measurement matrix C_i (shape 1x15)
-                C_i = H[i:i+1, :]
+            for vr, mu_r in zip(self.VR_meas, self.MU_R):
+                # self.get_logger().info(f"Radar vel measurement: {vr}, bearing unit vector: {mu_r}")
+                # Calculate H
+                H = self.calculate_radar_H(mu_r, w_imu)
+                h = self.calculate_radar_h(mu_r, w_imu)
+                e = np.array([[self.vr_sign * vr]]) - h
+                # self.e_mean += e.item()
+                # self.e_std += e.item()**2
 
-                # Scalar measurement covariance R_i (shape 1x1)
-                R_i = np.array([[self.sigma_vr**2]], dtype=np.float64)
+                # self.get_logger().info(f"H shape: {H.shape} \n e shape: {e.shape}")
+                # self.get_logger().info(f"Radar vel residual e: {e}, H: {H}, \nfor mu_r: {mu_r} and vr: {vr}")
+                R_meas = np.array([[self.sigma_vr**2]], dtype=np.float64)
+
+                # Gate
+                chi2_threshold = 9.21  # 97.5% with 1 dof
+                S = H @ self.es_ekf.P_hat_prior @ H.T + R_meas
+                nu = e.reshape(-1,1)
+                d2 = float(nu.T @ np.linalg.solve(S, nu))
+                self.get_logger().info(f"Radar vel measurement gating d2: {d2:.2f}")
+                if d2 > chi2_threshold: 
+                    self.get_logger().info(f"Radar vel measurement rejected by gating (d2={d2:.2f})")
+                    continue  # skip this measurement
 
                 # Corrector: delta_x_hat[k] and P_hat[k]
-                delta_x_hat_i, P_hat_i = self.es_ekf.correct(z_i, C_i, R_i)
+                delta_x_hat_i, P_hat_i = self.es_ekf.correct(e, H, R_meas)
+
+                # self.get_logger().info(f"Correcting by: {delta_x_hat_i.flatten()}")
 
                 # INS reset: x_ins[k]
-                x_hat_ins_i = self.es_ekf.update_state_estimate(delta_x_hat_i)
+                self.es_ekf.update_state_estimate(delta_x_hat_i)
+            
+            # self.i += 1
+            # if self.i > 100:
+            #     self.e_mean /= self.i
+            #     self.e_std = np.sqrt(self.e_std / self.i - self.e_mean**2)
+            #     self.get_logger().info(f"Radar vel residuals mean: {self.e_mean:.4f}, std: {self.e_std:.4f}")
 
-                # Keep the latest (for publishing after the loop)
-                last_delta_x_hat = delta_x_hat_i
-                last_P_hat = P_hat_i
-            # Corrector: delta_x_hat[k] and P_hat[k]
-            # delta_x_hat, P_hat = self.es_ekf.correct(z_total, Cd_total, R_noise)
+            # for i in range(N):
+            #     # Scalar residual z_i (shape 3x1)
+            #     z_i = np.array([[radar_measurements[i]]], dtype=np.float64)
+            #     # print(f"Radar vel residual z_i: {z_i.flatten()}")
 
-            # # INS reset: x_ins[k]
-            # x_hat_ins = self.es_ekf.update_state_estimate(delta_x_hat)
+            #     # Single-row measurement matrix C_i (shape 1x15)
+            #     C_i = H[i:i+1, :]
 
-            # # Publish the state estimate
-            # self._publish_state(x_hat_ins, P_hat)
+            #     # Scalar measurement covariance R_i (shape 1x1)
+            #     R_i = np.array([[self.sigma_vr**2]], dtype=np.float64)
 
-            if last_delta_x_hat is not None and last_P_hat is not None:
-                self._publish_state(self.es_ekf.x_hat_ins, last_P_hat)
+            #     # Corrector: delta_x_hat[k] and P_hat[k]
+            #     delta_x_hat_i, P_hat_i = self.es_ekf.correct(z_i, C_i, R_i)
+
+            #     # INS reset: x_ins[k]
+            #     self.es_ekf.update_state_estimate(delta_x_hat_i)
 
             self.new_velocity_measurement = False
-
 
         else:
             # No aiding measurements
             self.es_ekf.P_hat = self.es_ekf.P_hat_prior
         # Publish the state estimate
-        self._publish_state(x_hat_ins, P_hat_prior)
+        self._publish_state(self.es_ekf.x_hat_ins, self.es_ekf.P_hat)
 
     def update_radar(self, msg: PointCloud2, min_range=1e-2):
         """Extract bearing unit vectors (in radar frame R) and per-return radial speeds."""
         U_list, vr_list = [], []
         for x, y, z, v in pc2.read_points(msg, field_names=("x", "y", "z", "velocity"), skip_nans=True):
             r = np.sqrt(x*x + y*y + z*z)
-            print(f"Radar point r: {r}")
+            # print(f"Radar point r: {r}")
             if r < min_range:
                 continue
-            U_list.append([x/r, y/r, z/r])
+            # U_list.append([y/r, x/r, -z/r]) # ENU to NED
+            U_list.append([x/r, y/r, z/r]) # ENU to NED
             vr_list.append(v)
         if not U_list:
             return  # No valid points
@@ -401,41 +426,53 @@ class RevoltEKF(Node):
 
         self.new_velocity_measurement = True
 
-    def calculate_radar_velocity_error_and_H(self):
+    def calculate_radar_H(self, mu_r, w_imu):
         # 2) State rotations
         roll, pitch, yaw = self.es_ekf.theta_hat_ins.flatten()
         R_WI = Rzyx(roll, pitch, yaw)      # WRI
         R_IW = R_WI.T                      # IRW
         R_RI = self.R_RI                   # RRI
         p_IR = self.l_BR_B                 # IpIR, expressed in I
-        w_I  = getattr(self, "_last_w_imu", np.zeros((3,1)))  # IωWI (bias-corrected)
 
         # 3) Predicted radar linear velocity per Eq. (8): v_R = R_RI( R_IW v_W + (w_I)× p_IR )
         v_W  = self.es_ekf.v_hat_ins.reshape(3,1)        # WvWI (expressed in W)
         v_I  = R_IW @ v_W                                # WR^T_I WvWI  == R_IW v_W
-        v_R_pred = R_RI @ ( v_I + np.cross(w_I.flatten(), p_IR.flatten()).reshape(3,1) )
+        v_R_pred = R_RI @ ( v_I + np.cross(w_imu.flatten(), p_IR.flatten()).reshape(3,1) )
+
+        # 5) Build Jacobian H per Eq. (10)
+        # State order: [p(0:3), v(3:6), b_a(6:9), eul(9:12), b_g(12:15)]
+        H = np.zeros((1, 15), dtype=np.float64)
+
+        # d e / d v_W = - μ^T R_RI R_IW    (Eq. 10)
+        H[0, 3:6] = - (mu_r.reshape(1,3) @ (R_RI @ R_IW))
+
+        # d e / d b_g = - μ^T R_RI [p_IR]_x   (Eq. 10)
+        H[0, 12:15] = - (mu_r.reshape(1,3) @ (R_RI @ _skew(p_IR.flatten())))
+
+        # d e / d ϕθψ = - μ^T R_RI [ R_IW v_W + (w_I)× p_IR ]_x   (Eq. 10)
+        term = R_IW @ v_W                     # (IRW WvWI)
+        S = -(mu_r.reshape(1,3) @ (R_RI @ _skew(term.flatten())))   # shape (1,3)
+        H[0, 9:12] = S
+        return H
+    
+    def calculate_radar_h(self, mu_r, w_imu):
+        # 2) State rotations
+        roll, pitch, yaw = self.es_ekf.theta_hat_ins.flatten()
+        R_WI = Rzyx(roll, pitch, yaw)      # WRI
+        R_IW = R_WI.T                      # IRW
+        R_RI = self.R_RI                   # RRI
+        p_IR = self.l_BR_B                 # IpIR, expressed in I
+
+        # 3) Predicted radar linear velocity per Eq. (8): v_R = R_RI( R_IW v_W + (w_I)× p_IR )
+        v_W  = self.es_ekf.v_hat_ins.reshape(3,1)        # WvWI (expressed in W)
+        v_I  = R_IW @ v_W                                # WR^T_I WvWI  == R_IW v_W
+        v_R_pred = R_RI @ ( v_I + np.cross(w_imu.flatten(), p_IR.flatten()).reshape(3,1) )
 
         # 4) Residuals per Eq. (9): e_i = - μ_i^T v_R_pred - \tilde v_{r,i}
         # If your driver flips sign, vr_sign handles it.
-        e = (- self.MU_R @ v_R_pred).flatten() - self.vr_sign * self.VR_meas   # shape (N,)
-        N = e.size
+        h = (- mu_r.reshape(1,3) @ v_R_pred).item()   # shape (1,)
 
-        # 5) Build stacked Jacobian H per Eq. (10)
-        # State order: [p(0:3), v(3:6), b_a(6:9), eul(9:12), b_g(12:15)]
-        H = np.zeros((N, 15), dtype=np.float64)
-
-        # d e / d v_W = - μ^T R_RI R_IW    (Eq. 10)
-        H[:, 3:6] = - (self.MU_R @ (R_RI @ R_IW))
-
-        # d e / d b_g = - μ^T R_RI [p_IR]_x   (Eq. 10)
-        H[:, 12:15] = - (self.MU_R @ (R_RI @ _skew(p_IR.flatten())))
-
-
-        term = R_IW @ v_W                     # (IRW WvWI)
-        S = (self.MU_R @ (R_RI @ _skew(term.flatten())))   # shape (N,3)
-        H[:, 9:12] = S 
-
-        return e, H
+        return h
 
 
 def main():

@@ -1,11 +1,9 @@
 import numpy as np
-from revolt_state_estimator.utils import ssa, _skew
+from revolt_state_estimator.revolt_sensor_transforms import Tzyx, Rzyx
+from revolt_state_estimator.utils import ssa, _skew, _exp_so3
 
 # =============================================================================
 # es_ekf.py
-#
-# Extended Kalman Filter implementation in Python, with numerical Jacobians,
-# system discretization (ZOH), and predict/correct stages.
 # =============================================================================
 
 
@@ -56,7 +54,7 @@ class ErrorState_ExtendedKalmanFilter:
         self.delta_x_hat_prior = np.zeros((self.num_states, 1))
         self.P_hat_prior = np.eye(self.num_states)
 
-    def predict(self, Ad, Ed):
+    def predict(self, Ad, Qd):
         """
         Predictor update step, based on Fossen 2nd eq. 14.206, 14.207
         """
@@ -67,22 +65,22 @@ class ErrorState_ExtendedKalmanFilter:
 
         # Predict the covariance
         # P_hat_prior[k+1] = Ad[k] * P_hat[k] * Ad[k].T + Ed[k] * Q * Ed[k].T
-        self.P_hat_prior = Ad @ self.P_hat @ Ad.T + Ed @ self.Q @ Ed.T
+        self.P_hat_prior = Ad @ self.P_hat @ Ad.T + Qd
 
         return self.delta_x_hat_prior, self.P_hat_prior
 
-    def correct(self, z, H, R):
+    def correct(self, e, H, R_meas):
         """
         Update step: measurement z.
         """
 
         # KF gain: K[k]
-        K = self.calculate_kalman_gain(H, R)
+        K = self.calculate_kalman_gain(H, R_meas)
         IKC = np.eye(self.num_states) - K @ H
-        innovation = z - H @ self.delta_x_hat_prior
+        # innovation = z - H @ self.delta_x_hat_prior
 
-        self.delta_x_hat = self.delta_x_hat_prior + K @ innovation
-        self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R @ K.T
+        self.delta_x_hat = self.delta_x_hat_prior + K @ e
+        self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R_meas @ K.T # Joseph form
 
         if self.delta_x_hat.shape != (self.num_states, 1):
             raise ValueError(
@@ -100,7 +98,29 @@ class ErrorState_ExtendedKalmanFilter:
                 f"Shape mismatch: delta_x_hat {delta_x_hat.shape} does not match x_hat_ins {self.x_hat_ins.shape}"
             )
 
-        self.x_hat_ins += delta_x_hat # TODO: if angle is in quaternion we need to add using lie theory.
+        # nominal additive parts
+        self.x_hat_ins[:6]  += delta_x_hat[:6]
+        self.x_hat_ins[6:9] += delta_x_hat[6:9]     # b_a
+        self.x_hat_ins[12:15] += delta_x_hat[12:15] # b_g
+
+        # multiplicative attitude on SO(3)
+        roll, pitch, yaw = self.theta_hat_ins.flatten()
+        R_nb = Rzyx(roll, pitch, yaw)
+        dth = delta_x_hat[9:12, 0]
+        R_nb_next = R_nb @ _exp_so3(dth)            # compose rotation
+        # re-extract wrapped Euler only for storage/output
+        roll  = np.arctan2(R_nb_next[2,1], R_nb_next[2,2])
+        pitch = -np.arcsin(np.clip(R_nb_next[2,0], -1.0, 1.0))
+        yaw   = np.arctan2(R_nb_next[1,0], R_nb_next[0,0])
+        self.theta_hat_ins[:] = np.array([ssa(roll), ssa(pitch), ssa(yaw)]).reshape(3,1)
+
+        # rebuild x_hat_ins angles
+        self.x_hat_ins[9:12] = self.theta_hat_ins
+
+        G = np.eye(15)
+        G[9:12,9:12] = np.eye(3) - _skew(0.5 * dth)  # attitude correction
+        self.P_hat = G @ self.P_hat @ G.T  # Update covariance with attitude correction
+
         self.delta_x_hat = np.zeros(
             (self.num_states, 1)
         )  # Reset error state after update
@@ -111,20 +131,39 @@ class ErrorState_ExtendedKalmanFilter:
         """
         Propagate the INS state estimate using the error state.
         """
+
         self.b_acc_ins = x_hat[6:9]  # Body frame accelerometer bias
         self.b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
         # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
-        self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6]  # position update
+        self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6] + 0.5 * dt**2 * (R_bn @ (f_imu_b) + g_n)  # position update
 
         # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
         self.v_hat_ins = x_hat[3:6] + dt * (
             R_bn @ (f_imu_b) + g_n
         )  # velocity update
 
+        # Euler angles to rotation matrix
+        dR = _exp_so3(w_imu_b * dt)
+        R_bn_next = R_bn @ dR 
+        roll  = np.arctan2(R_bn_next[2,1], R_bn_next[2,2])
+        pitch = -np.arcsin(np.clip(R_bn_next[2,0], -1.0, 1.0))
+        yaw   = np.arctan2(R_bn_next[1,0], R_bn_next[0,0])
+        theta_next = np.array([ssa(roll), ssa(pitch), ssa(yaw)])
+        self.theta_hat_ins = theta_next.reshape(3,1)
+
+        # # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
+        # self.v_hat_ins = x_hat[3:6] + dt * (
+        #     R_bn_next @ (f_imu_b) + g_n
+        # )  # velocity update
+
+        # # p and v is in n-frame
+        # # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
+        # self.p_hat_ins = x_hat[:3] + dt * self.v_hat_ins  # position update
+
         # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_ars,ins^b) + g^n)
         # theta_hat_unwrapped = x_hat[9:12] + dt * (
-        #     T_bn @ (w_imu_b - b_ars_ins)
+        #     T_bn @ (w_imu_b)
         # )  # orientation update
         # roll_wrapped = ssa(theta_hat_unwrapped[0])
         # pitch_wrapped = ssa(theta_hat_unwrapped[1])
@@ -132,14 +171,13 @@ class ErrorState_ExtendedKalmanFilter:
 
         # self.theta_hat_ins = np.array([[roll_wrapped], [pitch_wrapped], [yaw_wrapped]]).reshape(3, 1)
 
+        
+        # Alternatively, using tf_transformations (commented out)
+        # roll, pitch, yaw = tf_transformations.euler_from_matrix(R_bn_next, axes='sxyz')
 
-        theta_hat_unwrapped = x_hat[9:12] + dt * (
-            T_bn @ (w_imu_b)
-        )  # orientation update
-
-        self.theta_hat_ins = np.array([[ssa(theta_hat_unwrapped[0,0])],
-                                       [ssa(theta_hat_unwrapped[1,0])],
-                                       [ssa(theta_hat_unwrapped[2,0])]])
+        # self.theta_hat_ins = np.array([[ssa(theta_hat_unwrapped[0,0])],
+        #                                [ssa(theta_hat_unwrapped[1,0])],
+        #                                [ssa(theta_hat_unwrapped[2,0])]])
 
         self.x_hat_ins = np.concatenate(
             [
