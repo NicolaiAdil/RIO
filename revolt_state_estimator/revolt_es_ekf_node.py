@@ -408,10 +408,10 @@ class RevoltEKF(Node):
                 delta_x_hat_i, P_hat_i = self.es_ekf.correct(e, H, R_meas)
 
                 # self.get_logger().info(f"Correcting by: {delta_x_hat_i.flatten()}")
-
+                self.es_ekf.update_state_estimate(delta_x_hat_i)
+                
                 self.es_ekf.P_hat_prior = P_hat_i
-
-            self.es_ekf.update_state_estimate(self.es_ekf.delta_x_hat)
+                self.es_ekf.delta_x_hat_prior = self.es_ekf.delta_x_hat.copy()
 
             self.i += 1
             if self.i == 200:

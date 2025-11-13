@@ -111,7 +111,9 @@ class ErrorState_ExtendedKalmanFilter:
         dth = delta_x_hat[9:12, 0]
         R_nb_next = R_nb @ _exp_so3(dth)            # compose rotation
         R_nb_next = _project_to_SO3(R_nb_next)      # re-orthogonalize
-        roll, pitch, yaw = tf_transformations.euler_from_matrix(R_nb_next, axes='sxyz')
+        pitch = -np.arcsin(np.clip(R_nb_next[2,0], -1.0, 1.0))
+        roll  = np.arctan2(R_nb_next[2,1], R_nb_next[2,2])
+        yaw   = np.arctan2(R_nb_next[1,0], R_nb_next[0,0])
         self.theta_hat_ins[:] = np.array([ssa(roll), ssa(pitch), ssa(yaw)]).reshape(3,1)
 
         # rebuild x_hat_ins angles
