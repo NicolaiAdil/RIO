@@ -80,7 +80,8 @@ class ErrorState_ExtendedKalmanFilter:
         IKC = np.eye(self.num_states) - K @ H
         # innovation = e - H @ self.delta_x_hat_prior
 
-        self.delta_x_hat = self.delta_x_hat_prior + K @ e
+        self.delta_x_hat = self.delta_x_hat + self.delta_x_hat_prior + K @ e
+        # print(f"delta_x_hat: {self.delta_x_hat.flatten()} with Kalman gain K: {K.flatten()}")
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R_meas @ K.T # Joseph form
 
         if self.delta_x_hat.shape != (self.num_states, 1):

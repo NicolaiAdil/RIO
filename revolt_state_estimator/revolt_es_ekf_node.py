@@ -352,7 +352,7 @@ class RevoltEKF(Node):
         # zs, Cs, Rs = [], [], []
 
         # Predictor: P_hat_prior[k+1]
-        delta_x_hat_prior, P_hat_prior = self.es_ekf.predict(Ad, Qd)
+        self.es_ekf.predict(Ad, Qd)
 
         # INS propagation: x_hat_ins[k+1]
         g_w = (np.array([0.0, 0.0, 9.81])).reshape(
@@ -383,7 +383,8 @@ class RevoltEKF(Node):
                 # Calculate H
                 H = self.calculate_radar_H(mu_r, R_WI, v_WI)
                 h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_imu)
-                e = np.array([[self.vr_sign * vr]]) - h 
+                e = np.array([[self.vr_sign * vr]]) - h
+
                 self.e_mean += e.item()
                 self.e_std += e.item()**2
 
@@ -392,25 +393,26 @@ class RevoltEKF(Node):
                 R_meas = np.array([[self.sigma_vr**2]], dtype=np.float64)
 
                 # Gate
-                chi2_threshold = 9.21  # 1 dof
-                S = H @ self.es_ekf.P_hat_prior @ H.T + R_meas
-                nu = e.reshape(-1,1)
-                sig = np.sqrt(S)
-                # self.get_logger().info(f"h={h:.3f} e={e}  sqrt(S)={sig}")
-                d2 = float(nu.T @ np.linalg.solve(S, nu))
-                # self.get_logger().info(f"Radar vel measurement gating d2: {d2:.2f}")
-                if d2 > chi2_threshold: 
-                    # self.get_logger().info(f"Radar vel measurement rejected by gating (d2={d2:.2f})")
-                    continue  # skip this measurement
+                # chi2_threshold = 9.21  # 1 dof
+                # S = H @ self.es_ekf.P_hat_prior @ H.T + R_meas
+                # nu = e.reshape(-1,1)
+                # sig = np.sqrt(S)
+                # # self.get_logger().info(f"h={h:.3f} e={e}  sqrt(S)={sig}")
+                # d2 = float(nu.T @ np.linalg.solve(S, nu))
+                # # self.get_logger().info(f"Radar vel measurement gating d2: {d2:.2f}")
+                # if d2 > chi2_threshold: 
+                #     # self.get_logger().info(f"Radar vel measurement rejected by gating (d2={d2:.2f})")
+                #     continue  # skip this measurement
 
                 # Corrector: delta_x_hat[k] and P_hat[k]
                 delta_x_hat_i, P_hat_i = self.es_ekf.correct(e, H, R_meas)
 
                 # self.get_logger().info(f"Correcting by: {delta_x_hat_i.flatten()}")
 
-                # INS reset: x_ins[k]
-                self.es_ekf.update_state_estimate(delta_x_hat_i)
-            
+                self.es_ekf.P_hat_prior = P_hat_i
+
+            self.es_ekf.update_state_estimate(self.es_ekf.delta_x_hat)
+
             self.i += 1
             if self.i == 200:
                 self.e_mean /= self.i
@@ -450,7 +452,7 @@ class RevoltEKF(Node):
             r = np.linalg.norm([x, y, z])
             if r < min_range:
                 continue
-            # U_list.append([y/r, x/r, -z/r]) # ENU to NED
+            # mu = np.array([y, x, -z], dtype=np.float64).reshape(3,1) / r # ENU to NED
             mu = np.array([x, y, z], dtype=np.float64).reshape(3,1) / r
             U_list.append(mu) # ENU to NED
             vr_list.append(v)
@@ -464,7 +466,7 @@ class RevoltEKF(Node):
         self.MU_R = np.asarray(U_list, dtype=np.float64)
         self.VR_meas = np.asarray(vr_list, dtype=np.float64)
 
-        # self.new_velocity_measurement = True
+        self.new_velocity_measurement = True
 
     def calculate_radar_H(self, mu_r, R_WI, v_WI):
         # 2) State rotations
@@ -492,12 +494,15 @@ class RevoltEKF(Node):
         term = R_IW @ v_WI                     # (IRW WvWI)
         S = -(mu_r.reshape(1,3) @ (R_RI @ _skew(term.flatten())))   # shape (1,3)
         H[0, 9:12] = S
+        # print(f"Radar H: {H}")
         return H
     
     def calculate_radar_h(self, mu_r, R_WI, v_WI, w_imu):
         R_IW = R_WI.T
         v_I  = R_IW @ v_WI
+        # print(f"v_I: {v_I.flatten()}")
         spin = np.cross(w_imu.flatten(), self.p_IR.flatten()).reshape(3,1)
+        # print(f"spin: {spin.flatten()}")
         v_R  = self.R_RI @ (v_I + spin)
         return float(-(mu_r.reshape(1,3) @ v_R))
     
