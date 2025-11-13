@@ -1,6 +1,7 @@
 import numpy as np
+import tf_transformations
 from revolt_state_estimator.revolt_sensor_transforms import Tzyx, Rzyx
-from revolt_state_estimator.utils import ssa, _skew, _exp_so3
+from revolt_state_estimator.utils import ssa, _skew, _exp_so3, _project_to_SO3
 
 # =============================================================================
 # es_ekf.py
@@ -12,7 +13,7 @@ class ErrorState_ExtendedKalmanFilter:
     Extended Kalman Filter with Euler predict + ZOH discretization + numerical Jacobians.
     """
 
-    def __init__(self, Q, T_acc, T_ars):
+    def __init__(self, Q, P_initial, T_acc, T_ars):
         """
         Error-state model:
         δx_dot = A(t)δx + E(t)w
@@ -48,11 +49,11 @@ class ErrorState_ExtendedKalmanFilter:
         # Error states
         # Posteri error states
         self.delta_x_hat = np.zeros((self.num_states, 1))  # Also known as x_post
-        self.P_hat = np.eye(self.num_states)  # Also known as P_post
+        self.P_hat = P_initial
 
         # Prior error states
         self.delta_x_hat_prior = np.zeros((self.num_states, 1))
-        self.P_hat_prior = np.eye(self.num_states)
+        self.P_hat_prior = P_initial
 
     def predict(self, Ad, Qd):
         """
@@ -77,7 +78,7 @@ class ErrorState_ExtendedKalmanFilter:
         # KF gain: K[k]
         K = self.calculate_kalman_gain(H, R_meas)
         IKC = np.eye(self.num_states) - K @ H
-        # innovation = z - H @ self.delta_x_hat_prior
+        # innovation = e - H @ self.delta_x_hat_prior
 
         self.delta_x_hat = self.delta_x_hat_prior + K @ e
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R_meas @ K.T # Joseph form
@@ -108,10 +109,8 @@ class ErrorState_ExtendedKalmanFilter:
         R_nb = Rzyx(roll, pitch, yaw)
         dth = delta_x_hat[9:12, 0]
         R_nb_next = R_nb @ _exp_so3(dth)            # compose rotation
-        # re-extract wrapped Euler only for storage/output
-        roll  = np.arctan2(R_nb_next[2,1], R_nb_next[2,2])
-        pitch = -np.arcsin(np.clip(R_nb_next[2,0], -1.0, 1.0))
-        yaw   = np.arctan2(R_nb_next[1,0], R_nb_next[0,0])
+        R_nb_next = _project_to_SO3(R_nb_next)      # re-orthogonalize
+        roll, pitch, yaw = tf_transformations.euler_from_matrix(R_nb_next, axes='sxyz')
         self.theta_hat_ins[:] = np.array([ssa(roll), ssa(pitch), ssa(yaw)]).reshape(3,1)
 
         # rebuild x_hat_ins angles
@@ -127,7 +126,7 @@ class ErrorState_ExtendedKalmanFilter:
 
         return self.x_hat_ins
 
-    def ins_propagation(self, x_hat, dt, R_bn, T_bn, f_imu_b, w_imu_b, g_n):
+    def ins_propagation(self, x_hat, dt, R_bn, T_bn, f_imu_b, w_imu_b, g_w):
         """
         Propagate the INS state estimate using the error state.
         """
@@ -136,21 +135,35 @@ class ErrorState_ExtendedKalmanFilter:
         self.b_ars_ins = x_hat[12:15]  # Body frame angular rate
         # p and v is in n-frame
         # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
-        self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6] + 0.5 * dt**2 * (R_bn @ (f_imu_b) + g_n)  # position update
+        # print(f"f_b: {f_imu_b}")
+        # print(f"a_n: {R_bn @ (f_imu_b) + g_w}")
+
+        self.p_hat_ins = x_hat[:3] + dt * x_hat[3:6] + 0.5 * dt**2 * (R_bn @ (f_imu_b) + g_w)  # position update
 
         # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
         self.v_hat_ins = x_hat[3:6] + dt * (
-            R_bn @ (f_imu_b) + g_n
+            R_bn @ (f_imu_b) + g_w
         )  # velocity update
 
         # Euler angles to rotation matrix
+        # print(f"w_b: {-w_imu_b}")
         dR = _exp_so3(w_imu_b * dt)
         R_bn_next = R_bn @ dR 
-        roll  = np.arctan2(R_bn_next[2,1], R_bn_next[2,2])
+        R_bn_next = _project_to_SO3(R_bn_next)
+        
+        # ZYX extraction matching Rzyx
         pitch = -np.arcsin(np.clip(R_bn_next[2,0], -1.0, 1.0))
+        roll  = np.arctan2(R_bn_next[2,1], R_bn_next[2,2])
         yaw   = np.arctan2(R_bn_next[1,0], R_bn_next[0,0])
         theta_next = np.array([ssa(roll), ssa(pitch), ssa(yaw)])
         self.theta_hat_ins = theta_next.reshape(3,1)
+        # print(f"|w|={np.linalg.norm(w_imu_b):.5f} RᵀR-I={np.linalg.norm(R_bn_next.T@R_bn_next - np.eye(3)):.2e}")
+        # print(f"w_b: {w_imu_b}, dt: {dt}")
+        # print(f"theta: {self.theta_hat_ins.flatten()}")
+        # theta_dot = T_bn @ w_imu_b
+        # self.theta_hat_ins = self.theta_hat_ins + dt * theta_dot
+        # self.theta_hat_ins = np.vectorize(ssa)(self.theta_hat_ins)
+
 
         # # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
         # self.v_hat_ins = x_hat[3:6] + dt * (

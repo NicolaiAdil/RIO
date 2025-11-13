@@ -4,10 +4,13 @@
       # Process noise, The smaller the value, the more you trust your model
       # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
       # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
-      Q: [20.0, 20.0, 20.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0, 5.0, 5.0, 5.0]
-
-      # Measurement noise, the smaller the value, the more you trust your measurements
-      # R_vel:  [0.3, 0.3, 0.3] # [v_x, v_y, v_z (m/s)]
+      Q: [
+        1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
+        7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
+        2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
+        2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
+      ]
+      radar_sigma_vr: 0.0038    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
       T_acc: 100.0 # Eq. 14.195 in Fossen 2nd edition
@@ -25,6 +28,12 @@
       radar_topic: '/radar/cloud'
 
       radar_vr_sign: 1        # flip to -1 if your driver uses opposite Doppler sign
-      radar_sigma_vr: 1.0    # per-return Doppler noise (m/s), tune 0.25–0.6
+
+      initial_sigma:
+        attitude_deg: [6.0, 6.0, 1.0e-6]
+        position:     [1.0e-6, 1.0e-6, 1.0e-6]
+        velocity:     [1.0e-1, 1.0e-1, 1.0e-1]
+        accel_bias:   [1.0e-2, 1.0e-2, 1.0e-2]
+        gyro_bias:    [1.0e-2, 1.0e-2, 1.0e-2]
 
   

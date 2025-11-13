@@ -138,9 +138,7 @@ class EKFDebugPlotter(Node):
         r, p, y = ssa(r), ssa(p), ssa(y)
 
         # Save yaw (unwrapped), roll, pitch
-        un_yaw = unwrap_append(self._last_yaw_est, y)
-        self._last_yaw_est = un_yaw
-        self._append_tv(self.t_yaw_est, self.yaw_est_hist, t, un_yaw)
+        self._append_tv(self.t_yaw_est, self.yaw_est_hist, t, y)
         self._append_tv(self.t_roll_est, self.roll_est_hist, t, r)
         self._append_tv(self.t_pitch_est, self.pitch_est_hist, t, p)
 
