@@ -80,7 +80,8 @@ class ErrorState_ExtendedKalmanFilter:
         IKC = np.eye(self.num_states) - K @ H
         # innovation = e - H @ self.delta_x_hat_prior
 
-        self.delta_x_hat = self.delta_x_hat + self.delta_x_hat_prior + K @ e
+        # print(f"K*e: {K @ e}")
+        self.delta_x_hat = K @ e
         # print(f"delta_x_hat: {self.delta_x_hat.flatten()} with Kalman gain K: {K.flatten()}")
         self.P_hat = IKC @ self.P_hat_prior @ IKC.T + K @ R_meas @ K.T # Joseph form
 
@@ -109,12 +110,16 @@ class ErrorState_ExtendedKalmanFilter:
         roll, pitch, yaw = self.theta_hat_ins.flatten()
         R_nb = Rzyx(roll, pitch, yaw)
         dth = delta_x_hat[9:12, 0]
+        # print("dth:", dth.flatten(), "yaw before update:", yaw)
         R_nb_next = R_nb @ _exp_so3(dth)            # compose rotation
         R_nb_next = _project_to_SO3(R_nb_next)      # re-orthogonalize
-        pitch = -np.arcsin(np.clip(R_nb_next[2,0], -1.0, 1.0))
-        roll  = np.arctan2(R_nb_next[2,1], R_nb_next[2,2])
-        yaw   = np.arctan2(R_nb_next[1,0], R_nb_next[0,0])
-        self.theta_hat_ins[:] = np.array([ssa(roll), ssa(pitch), ssa(yaw)]).reshape(3,1)
+        # print("R_nb_next det:", np.linalg.det(R_nb_next))
+        # r, p, y = tf_transformations.euler_from_matrix(R_nb_next, axes='szyx')
+        p = -np.arcsin(np.clip(R_nb_next[2,0], -1.0, 1.0))
+        r  = np.arctan2(R_nb_next[2,1], R_nb_next[2,2])
+        y   = np.arctan2(R_nb_next[1,0], R_nb_next[0,0])
+        # print("yaw after update:", y)
+        self.theta_hat_ins[:] = np.array([ssa(r), ssa(p), ssa(y)]).reshape(3,1)
 
         # rebuild x_hat_ins angles
         self.x_hat_ins[9:12] = self.theta_hat_ins
@@ -160,40 +165,11 @@ class ErrorState_ExtendedKalmanFilter:
         yaw   = np.arctan2(R_bn_next[1,0], R_bn_next[0,0])
         theta_next = np.array([ssa(roll), ssa(pitch), ssa(yaw)])
         self.theta_hat_ins = theta_next.reshape(3,1)
-        # print(f"|w|={np.linalg.norm(w_imu_b):.5f} RᵀR-I={np.linalg.norm(R_bn_next.T@R_bn_next - np.eye(3)):.2e}")
-        # print(f"w_b: {w_imu_b}, dt: {dt}")
-        # print(f"theta: {self.theta_hat_ins.flatten()}")
-        # theta_dot = T_bn @ w_imu_b
-        # self.theta_hat_ins = self.theta_hat_ins + dt * theta_dot
-        # self.theta_hat_ins = np.vectorize(ssa)(self.theta_hat_ins)
 
+        print(f"yaw INS after correction: {yaw}")
+        print(f"gyro bias: {self.b_ars_ins.flatten()}")
+        print(f"w_imu_b: {w_imu_b.flatten()}")
 
-        # # v_hat_ins[k+1] = v_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_acc,ins^b[k]) + g^n)
-        # self.v_hat_ins = x_hat[3:6] + dt * (
-        #     R_bn_next @ (f_imu_b) + g_n
-        # )  # velocity update
-
-        # # p and v is in n-frame
-        # # p_hat_ins[k+1] = p_hat_ins[k] + dt * v_hat_ins[k]
-        # self.p_hat_ins = x_hat[:3] + dt * self.v_hat_ins  # position update
-
-        # theta_hat_ins[k+1] = theta_hat_ins[k] + dt * (R_b^n[k] @ (f_imu^b[k] - b_ars,ins^b) + g^n)
-        # theta_hat_unwrapped = x_hat[9:12] + dt * (
-        #     T_bn @ (w_imu_b)
-        # )  # orientation update
-        # roll_wrapped = ssa(theta_hat_unwrapped[0])
-        # pitch_wrapped = ssa(theta_hat_unwrapped[1])
-        # yaw_wrapped = ssa(theta_hat_unwrapped[2])
-
-        # self.theta_hat_ins = np.array([[roll_wrapped], [pitch_wrapped], [yaw_wrapped]]).reshape(3, 1)
-
-        
-        # Alternatively, using tf_transformations (commented out)
-        # roll, pitch, yaw = tf_transformations.euler_from_matrix(R_bn_next, axes='sxyz')
-
-        # self.theta_hat_ins = np.array([[ssa(theta_hat_unwrapped[0,0])],
-        #                                [ssa(theta_hat_unwrapped[1,0])],
-        #                                [ssa(theta_hat_unwrapped[2,0])]])
 
         self.x_hat_ins = np.concatenate(
             [

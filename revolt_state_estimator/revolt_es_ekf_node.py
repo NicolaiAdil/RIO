@@ -91,7 +91,13 @@ class RevoltEKF(Node):
         _radar_topic = self.get_parameter("revolt_ekf.radar_topic").value
 
         l_BR_B = np.array(_l_BR_B, dtype=float).reshape(3,1)
-        self.p_IR = l_BR_B
+        l_BR_B_ned = np.array([[ l_BR_B[1,0]],
+                              [ l_BR_B[0,0]],
+                              [-l_BR_B[2,0]]], dtype=float)  # ENU to NED
+         # Rotation from radar to IMU
+         # q_R_B = [qx, qy, qz, qw]
+         # ENU to NED
+        self.p_IR = l_BR_B_ned
         qx,qy,qz,qw = _q_R_B
         self.R_IR = quat_xyzw_to_R(qx,qy,qz,qw)                   # Radar->IMU
         self.R_RI = self.R_IR.T                     # IMU->Radar
@@ -291,8 +297,8 @@ class RevoltEKF(Node):
         # If gyro is in deg/s, convert to rad/s here
         # w_b = np.deg2rad(w_b)
 
-        f_imu = f_b - self.es_ekf.b_acc_ins
-        w_imu = w_b - self.es_ekf.b_ars_ins
+        # f_imu = f_b - self.es_ekf.b_acc_ins
+        # w_imu = w_b - self.es_ekf.b_ars_ins
 
 
         # Initialize attitude from gravity if not yet done
@@ -339,7 +345,7 @@ class RevoltEKF(Node):
         # System dynamics to implement the 15-state error-state model
         # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
         # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
-        A = self.es_ekf.generate_A(R, T, f_imu, w_imu)  # Eq. 14.192 in Fossen 2nd ed.
+        A = self.es_ekf.generate_A(R, T, f_b - self.es_ekf.b_acc_ins, w_b - self.es_ekf.b_ars_ins)  # Eq. 14.192 in Fossen 2nd ed.
         E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
@@ -363,8 +369,8 @@ class RevoltEKF(Node):
             dt,
             R,
             T,
-            f_imu,
-            w_imu,
+            f_b - self.es_ekf.b_acc_ins,
+            w_b - self.es_ekf.b_ars_ins,
             g_w=g_w,
         )
 
@@ -382,7 +388,7 @@ class RevoltEKF(Node):
                 # self.get_logger().info(f"Radar vel measurement: {vr}, bearing unit vector: {mu_r}")
                 # Calculate H
                 H = self.calculate_radar_H(mu_r, R_WI, v_WI)
-                h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_imu)
+                h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_b - self.es_ekf.b_ars_ins)
                 e = np.array([[self.vr_sign * vr]]) - h
 
                 self.e_mean += e.item()
@@ -405,12 +411,12 @@ class RevoltEKF(Node):
                 #     continue  # skip this measurement
 
                 # Corrector: delta_x_hat[k] and P_hat[k]
-                delta_x_hat_i, P_hat_i = self.es_ekf.correct(e, H, R_meas)
+                delta_x_hat_i, _ = self.es_ekf.correct(e, H, R_meas)
 
                 # self.get_logger().info(f"Correcting by: {delta_x_hat_i.flatten()}")
                 self.es_ekf.update_state_estimate(delta_x_hat_i)
                 
-                self.es_ekf.P_hat_prior = P_hat_i
+                self.es_ekf.P_hat_prior = self.es_ekf.P_hat.copy()
                 self.es_ekf.delta_x_hat_prior = self.es_ekf.delta_x_hat.copy()
 
             self.i += 1
@@ -491,8 +497,8 @@ class RevoltEKF(Node):
         H[0, 12:15] = -(mu_r.reshape(1,3) @ (R_RI @ _skew(p_IR.flatten())))
 
         # d e / d ϕθψ = - μ^T R_RI [ R_IW v_W + (w_I)× p_IR ]_x   (Eq. 10)
-        term = R_IW @ v_WI                     # (IRW WvWI)
-        S = -(mu_r.reshape(1,3) @ (R_RI @ _skew(term.flatten())))   # shape (1,3)
+        v_I = R_IW @ v_WI                     # (IRW WvWI)
+        S = -(mu_r.reshape(1,3) @ (R_RI @ _skew(v_I.flatten())))   # shape (1,3)
         H[0, 9:12] = S
         # print(f"Radar H: {H}")
         return H
