@@ -91,13 +91,7 @@ class RevoltEKF(Node):
         _radar_topic = self.get_parameter("revolt_ekf.radar_topic").value
 
         l_BR_B = np.array(_l_BR_B, dtype=float).reshape(3,1)
-        l_BR_B_ned = np.array([[ l_BR_B[1,0]],
-                              [ l_BR_B[0,0]],
-                              [-l_BR_B[2,0]]], dtype=float)  # ENU to NED
-         # Rotation from radar to IMU
-         # q_R_B = [qx, qy, qz, qw]
-         # ENU to NED
-        self.p_IR = l_BR_B_ned
+        self.p_IR = l_BR_B
         qx,qy,qz,qw = _q_R_B
         self.R_IR = quat_xyzw_to_R(qx,qy,qz,qw)                   # Radar->IMU
         self.R_RI = self.R_IR.T                     # IMU->Radar
@@ -120,6 +114,7 @@ class RevoltEKF(Node):
 
         # Latest measurements
         self.latest_velocity = None
+        self.t_start = None
 
         # Error-state Extended Kalman Filter setup
         self.es_ekf = ErrorState_ExtendedKalmanFilter(
@@ -290,8 +285,8 @@ class RevoltEKF(Node):
                         [msg.angular_velocity.y],
                         [msg.angular_velocity.z]], dtype=float)
 
-        f_b = S_ENU_to_NED @ f_enu
-        w_b = S_ENU_to_NED @ w_enu
+        f_b = f_enu
+        w_b = w_enu
         # w_b = w_enu
 
         # If gyro is in deg/s, convert to rad/s here
@@ -308,9 +303,11 @@ class RevoltEKF(Node):
             if np.linalg.norm(f_b) < 9.0 or np.linalg.norm(f_b) > 10.5:
                 self.get_logger().warn("Drone must be level and not moving.")
                 return
+            
+            self.get_logger().info(f"Initializing attitude from f_b: {f_b.flatten()}")
 
             fb = f_b / max(1e-6, np.linalg.norm(f_b))
-            gb = -fb
+            gb = fb
             roll  = np.arctan2(gb[1,0],  gb[2,0])
             pitch = np.arctan2(-gb[0,0], np.sqrt(gb[1,0]**2 + gb[2,0]**2))
             yaw   = 0.0  # arbitrary, no compass
@@ -318,6 +315,7 @@ class RevoltEKF(Node):
             self.es_ekf.theta_hat_ins[:] = np.array([[ssa(roll)],[ssa(pitch)],[ssa(yaw)]])
             self.es_ekf.x_hat_ins[9:12]  = self.es_ekf.theta_hat_ins
             self.initialized_att = True
+            
             self.get_logger().info(f"Initialized attitude from gravity: roll={roll:.3f}, pitch={pitch:.3f}")
 
 
@@ -345,8 +343,16 @@ class RevoltEKF(Node):
         # System dynamics to implement the 15-state error-state model
         # ∂x_dot = A(t) * ∂x + E(t) * w (Eq. 14.188 in Fossen 2nd ed.)
         # ∂y = C * ∂x + ε (Eq. 14.189 in Fossen 2nd ed.)
-        A = self.es_ekf.generate_A(R, T, f_b - self.es_ekf.b_acc_ins, w_b - self.es_ekf.b_ars_ins)  # Eq. 14.192 in Fossen 2nd ed.
-        E = self.es_ekf.generate_E(R, T)  # Eq. 14.193 in Fossen 2nd ed.
+        A = self.es_ekf.generate_A(
+            R,
+            T, 
+            f_b - self.es_ekf.b_acc_ins, 
+            w_b - self.es_ekf.b_ars_ins
+        )  # Eq. 14.192 in Fossen 2nd ed.
+        E = self.es_ekf.generate_E(
+            R, 
+            T
+        )  # Eq. 14.193 in Fossen 2nd ed.
 
         # Discretization according to Fossen 2nd ed. Eq. 14.201
         Ad = np.eye(self.es_ekf.num_states) + A * dt
@@ -361,7 +367,7 @@ class RevoltEKF(Node):
         self.es_ekf.predict(Ad, Qd)
 
         # INS propagation: x_hat_ins[k+1]
-        g_w = (np.array([0.0, 0.0, 9.81])).reshape(
+        g_w = (np.array([0.0, 0.0, -9.81])).reshape(
             3, 1
         )  # gravity vector in navigation frame
         self.es_ekf.ins_propagation(
@@ -495,6 +501,7 @@ class RevoltEKF(Node):
 
         # d e / d b_g = - μ^T R_RI [p_IR]_x   (Eq. 10)
         H[0, 12:15] = -(mu_r.reshape(1,3) @ (R_RI @ _skew(p_IR.flatten())))
+        # self.get_logger().info(f"Radar H b_g: {H[0,12:15]}")
 
         # d e / d ϕθψ = - μ^T R_RI [ R_IW v_W + (w_I)× p_IR ]_x   (Eq. 10)
         v_I = R_IW @ v_WI                     # (IRW WvWI)

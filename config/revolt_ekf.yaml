@@ -30,7 +30,7 @@
       radar_vr_sign: 1        # flip to -1 if your driver uses opposite Doppler sign
 
       initial_sigma:
-        attitude_deg: [6.0, 6.0, 1.0e-6]
+        attitude_deg: [6.0, 6.0, 180.0]
         position:     [1.0e-6, 1.0e-6, 1.0e-6]
         velocity:     [1.0e-1, 1.0e-1, 1.0e-1]
         accel_bias:   [1.0e-2, 1.0e-2, 1.0e-2]

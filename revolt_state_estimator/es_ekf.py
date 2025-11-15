@@ -166,10 +166,9 @@ class ErrorState_ExtendedKalmanFilter:
         theta_next = np.array([ssa(roll), ssa(pitch), ssa(yaw)])
         self.theta_hat_ins = theta_next.reshape(3,1)
 
-        print(f"yaw INS after correction: {yaw}")
-        print(f"gyro bias: {self.b_ars_ins.flatten()}")
-        print(f"w_imu_b: {w_imu_b.flatten()}")
-
+        # print(f"yaw INS after correction: {yaw}")
+        # print(f"gyro bias: {self.b_ars_ins.flatten()}")
+        # print(f"w_imu_b: {w_imu_b.flatten()}")
 
         self.x_hat_ins = np.concatenate(
             [
