@@ -10,7 +10,7 @@
         2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
         2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
       ]
-      radar_sigma_vr: 0.0038    # per-return Doppler noise (m/s)
+      radar_sigma_vr: 0.38    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
       T_acc: 100.0 # Eq. 14.195 in Fossen 2nd edition
@@ -30,7 +30,7 @@
       radar_vr_sign: 1        # flip to -1 if your driver uses opposite Doppler sign
 
       initial_sigma:
-        attitude_deg: [6.0, 6.0, 180.0]
+        attitude_deg: [6.0, 6.0, 1.0e-6]
         position:     [1.0e-6, 1.0e-6, 1.0e-6]
         velocity:     [1.0e-1, 1.0e-1, 1.0e-1]
         accel_bias:   [1.0e-2, 1.0e-2, 1.0e-2]

@@ -7,6 +7,7 @@ Compares:
 - Roll/Pitch: EKF vs LIO truth
 Also shows:
 - Position (N–E, NED) tracks: EKF vs LIO truth
+- Z position (D in NED) vs time: EKF vs LIO truth
 - Velocity panel: EKF only (truth PoseStamped has no velocity)
 
 Each series has its own timestamps to avoid compressing the visible time window.
@@ -25,7 +26,7 @@ import time
 
 def ssa(angle):
     """Wrap to (-pi, pi]."""
-    a = (angle + np.pi) % (2.0*np.pi) - np.pi
+    a = (angle + np.pi) % (2.0 * np.pi) - np.pi
     if np.isclose(a, -np.pi):
         a = np.pi
     return a
@@ -34,8 +35,8 @@ def ssa(angle):
 def unwrap_append(prev_unwrapped, new_wrapped):
     if prev_unwrapped is None:
         return float(new_wrapped)
-    k = round((prev_unwrapped - new_wrapped) / (2*np.pi))
-    return float(new_wrapped + 2*np.pi*k)
+    k = round((prev_unwrapped - new_wrapped) / (2 * np.pi))
+    return float(new_wrapped + 2 * np.pi * k)
 
 
 def enu_pose_to_ned_euler_and_ne(qx, qy, qz, qw, px, py, pz):
@@ -44,7 +45,7 @@ def enu_pose_to_ned_euler_and_ne(qx, qy, qz, qw, px, py, pz):
     """
     R_enu_to_ned = np.array([[0, 1, 0],
                              [1, 0, 0],
-                             [0, 0,-1]], dtype=float)
+                             [0, 0, -1]], dtype=float)
     R4 = np.eye(4, dtype=float)
     R4[:3, :3] = R_enu_to_ned
 
@@ -91,6 +92,10 @@ class EKFDebugPlotter(Node):
         self.t_roll_truth, self.roll_truth_hist = deque(), deque()
         self.t_pitch_truth, self.pitch_truth_hist = deque(), deque()
 
+        # Z (D in NED) position histories
+        self.t_z_est, self.z_est_hist = deque(), deque()
+        self.t_z_truth, self.z_truth_hist = deque(), deque()
+
         # Velocities (EKF only here)
         self.t_vN_est, self.vN_est = deque(), deque()
         self.t_vE_est, self.vE_est = deque(), deque()
@@ -119,7 +124,7 @@ class EKFDebugPlotter(Node):
             f" Subscribed to:\n"
             f"  state:     {self.topic_state}\n"
             f"  truthPose: {self.topic_truth_pose}  (frame={self.truth_frame})\n"
-            f" Window = {self.window_secs}s, plot_rate = {1.0/self.plot_dt:.1f} Hz"
+            f" Window = {self.window_secs}s, plot_rate = {1.0 / self.plot_dt:.1f} Hz"
         )
 
     # ----------------------- Callbacks -----------------------
@@ -147,6 +152,10 @@ class EKFDebugPlotter(Node):
         E = float(msg.pose.pose.position.y)
         self._append_limited(self.ne_est, (N, E))
 
+        # Z (D in NED) position
+        D = float(msg.pose.pose.position.z)
+        self._append_tv(self.t_z_est, self.z_est_hist, t, D)
+
         # Vel (NED)
         vN = float(msg.twist.twist.linear.x)
         vE = float(msg.twist.twist.linear.y)
@@ -161,11 +170,13 @@ class EKFDebugPlotter(Node):
 
         if self.truth_frame == 'ENU':
             r, p, y, N, E = enu_pose_to_ned_euler_and_ne(qx, qy, qz, qw, px, py, pz)
+            D = -float(pz)  # ENU z is Up -> NED D = -z
         else:
             # Already NED
             r, p, y = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
             r, p, y = ssa(r), ssa(p), ssa(y)
             N, E = float(px), float(py)
+            D = float(pz)
 
         # Append orientation
         un = unwrap_append(self._last_yaw_truth, y)
@@ -174,8 +185,9 @@ class EKFDebugPlotter(Node):
         self._append_tv(self.t_roll_truth, self.roll_truth_hist, t, r)
         self._append_tv(self.t_pitch_truth, self.pitch_truth_hist, t, p)
 
-        # Append position
+        # Append position (NE, Z)
         self._append_limited(self.ne_truth, (N, E))
+        self._append_tv(self.t_z_truth, self.z_truth_hist, t, D)
 
         # Flip detector (vs latest EKF yaw if present)
         if len(self.yaw_est_hist) > 0:
@@ -188,8 +200,9 @@ class EKFDebugPlotter(Node):
 
     def _make_figure(self):
         plt.ion()
-        self.fig = plt.figure(figsize=(12, 12))
-        gs = self.fig.add_gridspec(4, 1, height_ratios=[1.2, 1.0, 1.0, 1.0], hspace=0.35)
+        self.fig = plt.figure(figsize=(12, 14))
+        # Extra row for Z plot
+        gs = self.fig.add_gridspec(5, 1, height_ratios=[1.2, 1.0, 1.0, 1.0, 1.0], hspace=0.35)
 
         # Yaw
         self.ax_head = self.fig.add_subplot(gs[0, 0])
@@ -197,39 +210,58 @@ class EKFDebugPlotter(Node):
         self.ax_head.set_ylabel("Yaw [deg]")
         self.ax_head.set_xlabel("Time [s]")
         # EKF thin, LIO thicker
-        self.l_est_head,   = self.ax_head.plot([], [], label="EKF yaw", linewidth=1.2)
+        self.l_est_head, = self.ax_head.plot([], [], label="EKF yaw", linewidth=1.2)
         self.l_truth_head, = self.ax_head.plot([], [], label="LIO truth yaw", linewidth=2.4)
-        self.flip_scatter   = self.ax_head.scatter([], [], marker='x', label="Flip?")
-        self.ax_head.legend(loc='best'); self.ax_head.grid(True)
+        self.flip_scatter = self.ax_head.scatter([], [], marker='x', label="Flip?")
+        self.ax_head.legend(loc='best')
+        self.ax_head.grid(True)
 
         # Roll/Pitch
         self.ax_rp = self.fig.add_subplot(gs[1, 0])
         self.ax_rp.set_title("Roll & Pitch vs Time")
-        self.ax_rp.set_ylabel("Angle [deg]"); self.ax_rp.set_xlabel("Time [s]")
+        self.ax_rp.set_ylabel("Angle [deg]")
+        self.ax_rp.set_xlabel("Time [s]")
         # EKF thin, LIO thicker
-        self.l_roll_est,   = self.ax_rp.plot([], [], label="EKF roll", linewidth=1.2)
-        self.l_pitch_est,  = self.ax_rp.plot([], [], label="EKF pitch", linewidth=1.2)
+        self.l_roll_est, = self.ax_rp.plot([], [], label="EKF roll", linewidth=1.2)
+        self.l_pitch_est, = self.ax_rp.plot([], [], label="EKF pitch", linewidth=1.2)
         self.l_roll_truth, = self.ax_rp.plot([], [], label="LIO roll", linewidth=2.4)
-        self.l_pitch_truth,= self.ax_rp.plot([], [], label="LIO pitch", linewidth=2.4)
-        self.ax_rp.legend(loc='best'); self.ax_rp.grid(True)
+        self.l_pitch_truth, = self.ax_rp.plot([], [], label="LIO pitch", linewidth=2.4)
+        self.ax_rp.legend(loc='best')
+        self.ax_rp.grid(True)
 
         # Position NE
         self.ax_ne = self.fig.add_subplot(gs[2, 0])
         self.ax_ne.set_title("Position (N–E in NED)")
-        self.ax_ne.set_xlabel("E [m]"); self.ax_ne.set_ylabel("N [m]")
-        self.l_est_ne,   = self.ax_ne.plot([], [], label="EKF track")
+        self.ax_ne.set_xlabel("E [m]")
+        self.ax_ne.set_ylabel("N [m]")
+        self.l_est_ne, = self.ax_ne.plot([], [], label="EKF track")
         self.l_truth_ne, = self.ax_ne.plot([], [], linestyle='None', marker='.', label="LIO truth")
-        self.ax_ne.axis('equal'); self.ax_ne.grid(True); self.ax_ne.legend(loc='best')
+        self.ax_ne.axis('equal')
+        self.ax_ne.grid(True)
+        self.ax_ne.legend(loc='best')
+
+        # Z (D in NED)
+        self.ax_z = self.fig.add_subplot(gs[3, 0])
+        self.ax_z.set_title("Vertical Position vs Time (D in NED)")
+        self.ax_z.set_ylabel("D [m] (down positive)")
+        self.ax_z.set_xlabel("Time [s]")
+        self.l_z_est, = self.ax_z.plot([], [], label="EKF D")
+        self.l_z_truth, = self.ax_z.plot([], [], label="LIO D", linewidth=2.0)
+        self.ax_z.grid(True)
+        self.ax_z.legend(loc='best')
 
         # Velocity (EKF only)
-        self.ax_vel = self.fig.add_subplot(gs[3, 0])
+        self.ax_vel = self.fig.add_subplot(gs[4, 0])
         self.ax_vel.set_title("Velocity Components vs Time (NED)")
-        self.ax_vel.set_ylabel("v [m/s]"); self.ax_vel.set_xlabel("Time [s]")
+        self.ax_vel.set_ylabel("v [m/s]")
+        self.ax_vel.set_xlabel("Time [s]")
         self.l_vN_est, = self.ax_vel.plot([], [], label="vN EKF")
         self.l_vE_est, = self.ax_vel.plot([], [], label="vE EKF")
-        self.ax_vel.grid(True); self.ax_vel.legend(loc='best')
+        self.ax_vel.grid(True)
+        self.ax_vel.legend(loc='best')
 
-        self.fig.canvas.draw(); self.fig.canvas.flush_events()
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
         try:
             plt.show(block=False)
         except Exception:
@@ -245,7 +277,8 @@ class EKFDebugPlotter(Node):
     def _finite_xy(tx, yy):
         if len(tx) == 0 or len(yy) == 0:
             return np.array([]), np.array([])
-        tx = np.asarray(tx); yy = np.asarray(yy)
+        tx = np.asarray(tx)
+        yy = np.asarray(yy)
         m = np.isfinite(tx) & np.isfinite(yy)
         return tx[m], yy[m]
 
@@ -256,7 +289,7 @@ class EKFDebugPlotter(Node):
         tmax = now
 
         # ---- Yaw (deg) ----
-        te, ye = self._finite_xy(self.t_yaw_est,   np.degrees(self.yaw_est_hist))
+        te, ye = self._finite_xy(self.t_yaw_est, np.degrees(self.yaw_est_hist))
         tt, yt = self._finite_xy(self.t_yaw_truth, np.degrees(self.yaw_truth_hist))
 
         self.l_est_head.set_data(te, ye)
@@ -278,10 +311,10 @@ class EKFDebugPlotter(Node):
         self.ax_head.autoscale_view(scalex=False, scaley=True)
 
         # ---- Roll/Pitch (deg) ----
-        tr_e, rr_e = self._finite_xy(self.t_roll_est,   np.degrees(self.roll_est_hist))
-        tp_e, pp_e = self._finite_xy(self.t_pitch_est,  np.degrees(self.pitch_est_hist))
+        tr_e, rr_e = self._finite_xy(self.t_roll_est, np.degrees(self.roll_est_hist))
+        tp_e, pp_e = self._finite_xy(self.t_pitch_est, np.degrees(self.pitch_est_hist))
         tr_t, rr_t = self._finite_xy(self.t_roll_truth, np.degrees(self.roll_truth_hist))
-        tp_t, pp_t = self._finite_xy(self.t_pitch_truth,np.degrees(self.pitch_truth_hist))
+        tp_t, pp_t = self._finite_xy(self.t_pitch_truth, np.degrees(self.pitch_truth_hist))
 
         self.l_roll_est.set_data(tr_e, rr_e)
         self.l_pitch_est.set_data(tp_e, pp_e)
@@ -289,7 +322,8 @@ class EKFDebugPlotter(Node):
         self.l_pitch_truth.set_data(tp_t, pp_t)
 
         self.ax_rp.set_xlim([tmin, tmax])
-        self.ax_rp.relim(); self.ax_rp.autoscale_view(scalex=False, scaley=True)
+        self.ax_rp.relim()
+        self.ax_rp.autoscale_view(scalex=False, scaley=True)
 
         # ---- Position NE ----
         ne_est_arr = np.array(self.ne_est) if len(self.ne_est) else np.empty((0, 2))
@@ -304,15 +338,29 @@ class EKFDebugPlotter(Node):
             self.l_truth_ne.set_data([], [])
 
         if ne_est_arr.shape[0] + ne_tru_arr.shape[0] > 1:
-            allE = []; allN = []
+            allE = []
+            allN = []
             if ne_est_arr.shape[0] > 0:
-                allE += ne_est_arr[:, 1].tolist(); allN += ne_est_arr[:, 0].tolist()
+                allE += ne_est_arr[:, 1].tolist()
+                allN += ne_est_arr[:, 0].tolist()
             if ne_tru_arr.shape[0] > 0:
-                allE += ne_tru_arr[:, 1].tolist(); allN += ne_tru_arr[:, 0].tolist()
+                allE += ne_tru_arr[:, 1].tolist()
+                allN += ne_tru_arr[:, 0].tolist()
             padE = (max(allE) - min(allE)) * 0.1 + 1.0
             padN = (max(allN) - min(allN)) * 0.1 + 1.0
             self.ax_ne.set_xlim([min(allE) - padE, max(allE) + padE])
             self.ax_ne.set_ylim([min(allN) - padN, max(allN) + padN])
+
+        # ---- Z (D in NED) ----
+        t_ze, ze = self._finite_xy(self.t_z_est, self.z_est_hist)
+        t_zt, zt = self._finite_xy(self.t_z_truth, self.z_truth_hist)
+
+        self.l_z_est.set_data(t_ze, ze)
+        self.l_z_truth.set_data(t_zt, zt)
+
+        self.ax_z.set_xlim([tmin, tmax])
+        self.ax_z.relim()
+        self.ax_z.autoscale_view(scalex=False, scaley=True)
 
         # ---- Velocity (EKF only) ----
         t_vNe, vNe = self._finite_xy(self.t_vN_est, self.vN_est)
@@ -322,7 +370,8 @@ class EKFDebugPlotter(Node):
         self.l_vE_est.set_data(t_vEe, vEe)
 
         self.ax_vel.set_xlim([tmin, tmax])
-        self.ax_vel.relim(); self.ax_vel.autoscale_view(scalex=False, scaley=True)
+        self.ax_vel.relim()
+        self.ax_vel.autoscale_view(scalex=False, scaley=True)
 
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
@@ -335,9 +384,11 @@ class EKFDebugPlotter(Node):
             dq.popleft()
 
     def _append_tv(self, t_dq, v_dq, t, v, maxlen=5000):
-        t_dq.append(float(t)); v_dq.append(float(v))
+        t_dq.append(float(t))
+        v_dq.append(float(v))
         if len(t_dq) > maxlen:
-            t_dq.popleft(); v_dq.popleft()
+            t_dq.popleft()
+            v_dq.popleft()
 
 
 def main():
