@@ -10,7 +10,9 @@ Also shows:
 - Z position (D in NED) vs time: EKF vs LIO truth
 - Velocity panel: EKF only (truth PoseStamped has no velocity)
 
-Each series has its own timestamps to avoid compressing the visible time window.
+NEW:
+- Second window plotting radar extrinsics (position and attitude of radar in body frame)
+  including ground truth extrinsics for comparison, with GT in same color (dashed).
 """
 
 from collections import deque
@@ -68,6 +70,7 @@ class EKFDebugPlotter(Node):
         # Parameters
         self.declare_parameter('topic_state', '/state_estimate/revolt')
         self.declare_parameter('topic_truth_pose', '/lio/pose')
+        self.declare_parameter('topic_radar_extrinsics', '/radar/extrinsics')
         self.declare_parameter('truth_frame', 'NED')  # 'ENU' or 'NED'
         self.declare_parameter('window_secs', 300.0)
         self.declare_parameter('plot_rate_hz', 5.0)
@@ -75,6 +78,7 @@ class EKFDebugPlotter(Node):
 
         self.topic_state = self.get_parameter('topic_state').value
         self.topic_truth_pose = self.get_parameter('topic_truth_pose').value
+        self.topic_radar_extrinsics = self.get_parameter('topic_radar_extrinsics').value
         self.truth_frame = str(self.get_parameter('truth_frame').value).upper()
         self.window_secs = float(self.get_parameter('window_secs').value)
         self.plot_dt = 1.0 / float(self.get_parameter('plot_rate_hz').value)
@@ -111,9 +115,30 @@ class EKFDebugPlotter(Node):
         self._last_yaw_est = None
         self._last_yaw_truth = None
 
+        # Radar extrinsics histories (body -> radar)
+        self.t_extr = deque()
+        self.ex_px = deque()
+        self.ex_py = deque()
+        self.ex_pz = deque()
+        self.ex_roll = deque()
+        self.ex_pitch = deque()
+        self.ex_yaw = deque()
+        self._last_extr_yaw = None  # unwrap
+
+        # Ground-truth radar extrinsics (body -> radar)
+        # l_BR_B: [0.077, 0.016, -0.063]
+        # q_R_B: [0.963, -0.021, -0.265, 0.021] (Radar->Body, xyzw)
+        self.gt_pos = np.array([0.077, 0.016, -0.063], dtype=float)
+        q_rb = [0.963, -0.021, -0.265, 0.021]  # radar->body
+        q_br = [-q_rb[0], -q_rb[1], -q_rb[2], q_rb[3]]  # body->radar
+        r_gt, p_gt, y_gt = tf_transformations.euler_from_quaternion(q_br)
+        r_gt, p_gt, y_gt = ssa(r_gt), ssa(p_gt), ssa(y_gt)
+        self.gt_att_deg = np.degrees([r_gt, p_gt, y_gt])
+
         # Subscribers
         self.create_subscription(Odometry, self.topic_state, self.cb_state, 10)
         self.create_subscription(PoseStamped, self.topic_truth_pose, self.cb_truth_pose, 10)
+        self.create_subscription(PoseStamped, self.topic_radar_extrinsics, self.cb_radar_extrinsics, 10)
 
         # Figure + timer
         self._make_figure()
@@ -124,6 +149,7 @@ class EKFDebugPlotter(Node):
             f" Subscribed to:\n"
             f"  state:     {self.topic_state}\n"
             f"  truthPose: {self.topic_truth_pose}  (frame={self.truth_frame})\n"
+            f"  extrinsics:{self.topic_radar_extrinsics}\n"
             f" Window = {self.window_secs}s, plot_rate = {1.0 / self.plot_dt:.1f} Hz"
         )
 
@@ -143,7 +169,9 @@ class EKFDebugPlotter(Node):
         r, p, y = ssa(r), ssa(p), ssa(y)
 
         # Save yaw (unwrapped), roll, pitch
-        self._append_tv(self.t_yaw_est, self.yaw_est_hist, t, y)
+        un_yaw_est = unwrap_append(self._last_yaw_est, y)
+        self._last_yaw_est = un_yaw_est
+        self._append_tv(self.t_yaw_est, self.yaw_est_hist, t, un_yaw_est)
         self._append_tv(self.t_roll_est, self.roll_est_hist, t, r)
         self._append_tv(self.t_pitch_est, self.pitch_est_hist, t, p)
 
@@ -196,12 +224,55 @@ class EKFDebugPlotter(Node):
                 self._append_limited(self.flip_marks_t, t)
                 self.get_logger().warn(f"Possible 180° flip: |Δyaw|={np.degrees(abs(diff)):.1f}° at t={t:.1f}s")
 
+    def cb_radar_extrinsics(self, msg: PoseStamped):
+        """
+        Pose of radar in body frame (topic_radar_extrinsics, PoseStamped).
+        We log position and attitude and plot them in a second window.
+        """
+        t = self._now_s()
+
+        px = float(msg.pose.position.x)
+        py = float(msg.pose.position.y)
+        pz = float(msg.pose.position.z)
+
+        qx = msg.pose.orientation.x
+        qy = msg.pose.orientation.y
+        qz = msg.pose.orientation.z
+        qw = msg.pose.orientation.w
+
+        r, p, y = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
+        r, p, y = ssa(r), ssa(p), ssa(y)
+
+        # Unwrap yaw of extrinsics for nicer plot
+        un_yaw_ex = unwrap_append(self._last_extr_yaw, y)
+        self._last_extr_yaw = un_yaw_ex
+
+        # Append keeping all arrays the same length
+        self.t_extr.append(float(t))
+        self.ex_px.append(px)
+        self.ex_py.append(py)
+        self.ex_pz.append(pz)
+        self.ex_roll.append(r)
+        self.ex_pitch.append(p)
+        self.ex_yaw.append(un_yaw_ex)
+
+        # Limit length
+        maxlen = 5000
+        if len(self.t_extr) > maxlen:
+            self.t_extr.popleft()
+            self.ex_px.popleft()
+            self.ex_py.popleft()
+            self.ex_pz.popleft()
+            self.ex_roll.popleft()
+            self.ex_pitch.popleft()
+            self.ex_yaw.popleft()
+
     # ----------------------- Plotting -----------------------
 
     def _make_figure(self):
         plt.ion()
+        # Main figure (existing)
         self.fig = plt.figure(figsize=(12, 14))
-        # Extra row for Z plot
         gs = self.fig.add_gridspec(5, 1, height_ratios=[1.2, 1.0, 1.0, 1.0, 1.0], hspace=0.35)
 
         # Yaw
@@ -209,7 +280,6 @@ class EKFDebugPlotter(Node):
         self.ax_head.set_title("Yaw vs Time")
         self.ax_head.set_ylabel("Yaw [deg]")
         self.ax_head.set_xlabel("Time [s]")
-        # EKF thin, LIO thicker
         self.l_est_head, = self.ax_head.plot([], [], label="EKF yaw", linewidth=1.2)
         self.l_truth_head, = self.ax_head.plot([], [], label="LIO truth yaw", linewidth=2.4)
         self.flip_scatter = self.ax_head.scatter([], [], marker='x', label="Flip?")
@@ -221,7 +291,6 @@ class EKFDebugPlotter(Node):
         self.ax_rp.set_title("Roll & Pitch vs Time")
         self.ax_rp.set_ylabel("Angle [deg]")
         self.ax_rp.set_xlabel("Time [s]")
-        # EKF thin, LIO thicker
         self.l_roll_est, = self.ax_rp.plot([], [], label="EKF roll", linewidth=1.2)
         self.l_pitch_est, = self.ax_rp.plot([], [], label="EKF pitch", linewidth=1.2)
         self.l_roll_truth, = self.ax_rp.plot([], [], label="LIO roll", linewidth=2.4)
@@ -262,6 +331,63 @@ class EKFDebugPlotter(Node):
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+        try:
+            plt.show(block=False)
+        except Exception:
+            pass
+
+        # Second figure for radar extrinsics (position + attitude)
+        self.fig_extr = plt.figure(figsize=(10, 8))
+        gs2 = self.fig_extr.add_gridspec(2, 1, height_ratios=[1.0, 1.0], hspace=0.3)
+
+        # Attitude of radar wrt body
+        self.ax_extr_att = self.fig_extr.add_subplot(gs2[0, 0])
+        self.ax_extr_att.set_title("Radar Extrinsics: Attitude (radar → body)")
+        self.ax_extr_att.set_ylabel("Angle [deg]")
+        self.ax_extr_att.set_xlabel("Time [s]")
+        self.ax_extr_att.grid(True)
+
+        # Estimated attitude lines
+        self.l_ex_roll, = self.ax_extr_att.plot([], [], label="roll est")
+        self.l_ex_pitch, = self.ax_extr_att.plot([], [], label="pitch est")
+        self.l_ex_yaw, = self.ax_extr_att.plot([], [], label="yaw est")
+
+        # Same colors for GT, dashed
+        roll_color = self.l_ex_roll.get_color()
+        pitch_color = self.l_ex_pitch.get_color()
+        yaw_color = self.l_ex_yaw.get_color()
+
+        self.l_ex_roll_gt, = self.ax_extr_att.plot([], [], '--', label="roll GT", color=roll_color)
+        self.l_ex_pitch_gt, = self.ax_extr_att.plot([], [], '--', label="pitch GT", color=pitch_color)
+        self.l_ex_yaw_gt, = self.ax_extr_att.plot([], [], '--', label="yaw GT", color=yaw_color)
+
+        self.ax_extr_att.legend(loc='best')
+
+        # Position of radar wrt body
+        self.ax_extr_pos = self.fig_extr.add_subplot(gs2[1, 0])
+        self.ax_extr_pos.set_title("Radar Extrinsics: Position (body → radar)")
+        self.ax_extr_pos.set_ylabel("Position [m]")
+        self.ax_extr_pos.set_xlabel("Time [s]")
+        self.ax_extr_pos.grid(True)
+
+        # Estimated position lines
+        self.l_ex_px, = self.ax_extr_pos.plot([], [], label="p_x est")
+        self.l_ex_py, = self.ax_extr_pos.plot([], [], label="p_y est")
+        self.l_ex_pz, = self.ax_extr_pos.plot([], [], label="p_z est")
+
+        px_color = self.l_ex_px.get_color()
+        py_color = self.l_ex_py.get_color()
+        pz_color = self.l_ex_pz.get_color()
+
+        # GT with same colors (dashed)
+        self.l_ex_px_gt, = self.ax_extr_pos.plot([], [], '--', label="p_x GT", color=px_color)
+        self.l_ex_py_gt, = self.ax_extr_pos.plot([], [], '--', label="p_y GT", color=py_color)
+        self.l_ex_pz_gt, = self.ax_extr_pos.plot([], [], '--', label="p_z GT", color=pz_color)
+
+        self.ax_extr_pos.legend(loc='best')
+
+        self.fig_extr.canvas.draw()
+        self.fig_extr.canvas.flush_events()
         try:
             plt.show(block=False)
         except Exception:
@@ -375,6 +501,52 @@ class EKFDebugPlotter(Node):
 
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
+
+        # ---- Radar extrinsics (second figure) ----
+        t_ex = np.asarray(self.t_extr, dtype=float)
+        if t_ex.size > 0:
+            mask = (t_ex >= tmin) & (t_ex <= tmax)
+            t_ex_w = t_ex[mask]
+
+            ex_roll = np.degrees(np.asarray(self.ex_roll)[mask])
+            ex_pitch = np.degrees(np.asarray(self.ex_pitch)[mask])
+            ex_yaw = np.degrees(np.asarray(self.ex_yaw)[mask])
+
+            ex_px = np.asarray(self.ex_px)[mask]
+            ex_py = np.asarray(self.ex_py)[mask]
+            ex_pz = np.asarray(self.ex_pz)[mask]
+
+            # Estimated
+            self.l_ex_roll.set_data(t_ex_w, ex_roll)
+            self.l_ex_pitch.set_data(t_ex_w, ex_pitch)
+            self.l_ex_yaw.set_data(t_ex_w, ex_yaw)
+
+            self.l_ex_px.set_data(t_ex_w, ex_px)
+            self.l_ex_py.set_data(t_ex_w, ex_py)
+            self.l_ex_pz.set_data(t_ex_w, ex_pz)
+
+            # Ground truth (constant lines, same colors as estimate)
+            roll_gt, pitch_gt, yaw_gt = self.gt_att_deg
+            px_gt, py_gt, pz_gt = self.gt_pos
+
+            self.l_ex_roll_gt.set_data(t_ex_w, np.full_like(t_ex_w, roll_gt))
+            self.l_ex_pitch_gt.set_data(t_ex_w, np.full_like(t_ex_w, pitch_gt))
+            self.l_ex_yaw_gt.set_data(t_ex_w, np.full_like(t_ex_w, yaw_gt))
+
+            self.l_ex_px_gt.set_data(t_ex_w, np.full_like(t_ex_w, px_gt))
+            self.l_ex_py_gt.set_data(t_ex_w, np.full_like(t_ex_w, py_gt))
+            self.l_ex_pz_gt.set_data(t_ex_w, np.full_like(t_ex_w, pz_gt))
+
+            self.ax_extr_att.set_xlim([tmin, tmax])
+            self.ax_extr_att.relim()
+            self.ax_extr_att.autoscale_view(scalex=False, scaley=True)
+
+            self.ax_extr_pos.set_xlim([tmin, tmax])
+            self.ax_extr_pos.relim()
+            self.ax_extr_pos.autoscale_view(scalex=False, scaley=True)
+
+        self.fig_extr.canvas.draw_idle()
+        self.fig_extr.canvas.flush_events()
 
     # ----------------------- Helpers -----------------------
 

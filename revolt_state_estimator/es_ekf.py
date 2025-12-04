@@ -13,7 +13,7 @@ class ErrorState_ExtendedKalmanFilter:
       δx = [δp^n, δv^n, δb_acc^b, δθ_nb, δb_ars^b]^T
     """
 
-    def __init__(self, Q, P_initial, T_acc, T_ars):
+    def __init__(self, Q, P_initial, T_acc, T_ars, p_IR_init=None, q_IR_init=None):
         """
         Error-state model:
         δx_dot = A(t)δx + E(t)w
@@ -23,7 +23,7 @@ class ErrorState_ExtendedKalmanFilter:
         w  = [(w_acc)^T, (w_b,acc)^T, (w_ars)^T, (w_b,ars)^T]^T
         """
         # Error-state dimension
-        self.num_states = 15
+        self.num_states = 21
 
         self.Q      = Q
         self.T_acc  = T_acc
@@ -38,6 +38,8 @@ class ErrorState_ExtendedKalmanFilter:
                                     [0.0],
                                     [1.0]])         # quaternion [x,y,z,w], body→NED
         self.b_ars_ins  = np.zeros((3, 1))           # gyro bias (body)
+        self.p_IR = np.asarray(p_IR_init, dtype=float).reshape(3, 1)
+        self.q_IR = np.asarray(q_IR_init, dtype=float).reshape(4, 1)
 
         # Nominal state vector: 16x1
         self.x_hat_ins = np.concatenate(
@@ -47,9 +49,11 @@ class ErrorState_ExtendedKalmanFilter:
                 self.b_acc_ins,
                 self.q_hat_ins,
                 self.b_ars_ins,
+                self.p_IR,
+                self.q_IR,
             ]
         )
-        self.num_ins_states = self.x_hat_ins.shape[0]   # 16
+        self.num_ins_states = self.x_hat_ins.shape[0]   # 23
 
         # Error state and covariance
         self.delta_x_hat       = np.zeros((self.num_states, 1))
@@ -122,24 +126,14 @@ class ErrorState_ExtendedKalmanFilter:
         self.v_hat_ins  += delta_x_hat[3:6]
         self.b_acc_ins  += delta_x_hat[6:9]
         self.b_ars_ins  += delta_x_hat[12:15]
+        self.p_IR       += delta_x_hat[15:18]
 
         # Attitude error δθ (3x1)
         dth = delta_x_hat[9:12, 0]  # roll, pitch, yaw error (small angles)
+        self.q_hat_ins = self.perturbate_quaternion(self.q_hat_ins, dth)
 
-        # Current R_nb from quaternion (body→NED)
-        q = self.q_hat_ins.flatten()
-        R_nb = tf_transformations.quaternion_matrix(q)[:3, :3]
-
-        # Multiplicative correction: R_nb_next = R_nb @ exp([δθ]x)
-        dR = _exp_so3(dth)
-        R_nb_next = R_nb @ dR
-        R_nb_next = _project_to_SO3(R_nb_next)
-
-        # Back to quaternion
-        R4 = np.eye(4)
-        R4[:3, :3] = R_nb_next
-        q_next = tf_transformations.quaternion_from_matrix(R4)
-        self.q_hat_ins = np.asarray(q_next, dtype=float).reshape(4, 1)
+        dth_IR = delta_x_hat[18:21, 0]
+        self.q_IR = self.perturbate_quaternion(self.q_IR, dth_IR)
 
         # Rebuild nominal state vector (16x1)
         self.x_hat_ins = np.concatenate(
@@ -149,12 +143,15 @@ class ErrorState_ExtendedKalmanFilter:
                 self.b_acc_ins,
                 self.q_hat_ins,
                 self.b_ars_ins,
+                self.p_IR,
+                self.q_IR,
             ]
         )
 
         # Covariance correction for attitude block
         G = np.eye(self.num_states)
         G[9:12, 9:12] = np.eye(3) - _skew(0.5 * dth)
+        G[18:21, 18:21] = np.eye(3) - _skew(0.5 * dth_IR)
         self.P_hat = G @ self.P_hat @ G.T
 
         # Reset error state after applying the correction
@@ -181,6 +178,7 @@ class ErrorState_ExtendedKalmanFilter:
         self.b_acc_ins = x_hat[6:9]
         self.q_hat_ins = x_hat[9:13]   # 4x1
         self.b_ars_ins = x_hat[13:16]
+        # extrinsics are kept in self.p_IR, self.q_IR (no propagation)
 
         # Rotation body→NED from quaternion
         q = self.q_hat_ins.flatten()
@@ -199,10 +197,7 @@ class ErrorState_ExtendedKalmanFilter:
         R_nb_next = _project_to_SO3(R_nb_next)
 
         # Back to quaternion
-        R4 = np.eye(4)
-        R4[:3, :3] = R_nb_next
-        q_next = tf_transformations.quaternion_from_matrix(R4)
-        self.q_hat_ins = np.asarray(q_next, dtype=float).reshape(4, 1)
+        self.q_hat_ins = self.rotation_matrix_to_quaternion(R_nb_next)
 
         # Rebuild nominal state (16x1)
         self.x_hat_ins = np.concatenate(
@@ -212,6 +207,8 @@ class ErrorState_ExtendedKalmanFilter:
                 self.b_acc_ins,
                 self.q_hat_ins,
                 self.b_ars_ins,
+                self.p_IR,
+                self.q_IR,
             ]
         )
 
@@ -226,13 +223,17 @@ class ErrorState_ExtendedKalmanFilter:
         """
         O3 = np.zeros((3, 3))
         I3 = np.eye(3)
-        A = np.block([
+        A_15 = np.block([
             [O3,  I3,                 O3,                     O3,                 O3],
             [O3,  O3,              -R_nb, -R_nb @ _skew(f_b_nom),                 O3],
             [O3,  O3, -(1/self.T_acc)*I3,                     O3,                 O3],
             [O3,  O3,                 O3,        -_skew(w_b_nom),                -I3],
             [O3,  O3,                 O3,                     O3, -(1/self.T_ars)*I3],
         ])
+        # Embed into 21x21 (last 6 states: δp_IR, δθ_IR, constant)
+        A = np.zeros((self.num_states, self.num_states))
+        A[0:15, 0:15] = A_15
+        # Rows/cols 15:21 remain zero (no dynamics for extrinsics)
         return A
 
     def generate_E(self, R_nb):
@@ -241,11 +242,59 @@ class ErrorState_ExtendedKalmanFilter:
         """
         O3 = np.zeros((3, 3))
         I3 = np.eye(3)
-        E = np.block([
+        E_15 = np.block([
             [   O3,  O3,    O3, O3],
             [-R_nb,  O3,    O3, O3],
             [   O3,  I3,    O3, O3],
             [   O3,  O3,   -I3, O3],
             [   O3,  O3,    O3, I3],
         ])
+        E = np.zeros((self.num_states, E_15.shape[1]))  # 21x12
+        E[0:15, :] = E_15
         return E
+    
+    # -------------------------------------------------------------------------
+    # Helper functions
+    # -------------------------------------------------------------------------
+    def perturbate_quaternion(self, q, dth):
+        """
+        Apply small-angle perturbation dth (3x1) to quaternion q (4x1).
+        """
+        # Current rotation matrix
+        q_flat = q.flatten()
+        R = tf_transformations.quaternion_matrix(q_flat)[:3, :3]
+
+        # Perturbation rotation
+        dR = _exp_so3(dth.flatten())
+
+        # New rotation
+        R_new = R @ dR
+        R_new = _project_to_SO3(R_new)
+
+        return self.rotation_matrix_to_quaternion(R_new)
+    
+    def perturbate_rotation_matrix(self, R, dth):
+        """
+        Apply small-angle perturbation dth (3x1) to rotation matrix R (3x3).
+        """
+        dR = _exp_so3(dth.flatten())
+        R_new = R @ dR
+        R_new = _project_to_SO3(R_new)
+        return R_new
+    
+    def rotation_matrix_to_quaternion(self, R):
+        """
+        Convert rotation matrix R (3x3) to quaternion (4x1).
+        """
+        R4 = np.eye(4)
+        R4[:3, :3] = R
+        q = tf_transformations.quaternion_from_matrix(R4)
+        return np.asarray(q, dtype=float).reshape(4, 1)
+    
+    def quaternion_to_rotation_matrix(self, q):
+        """
+        Convert quaternion q (4x1) to rotation matrix (3x3).
+        """
+        q_flat = q.flatten()
+        R = tf_transformations.quaternion_matrix(q_flat)[:3, :3]
+        return R

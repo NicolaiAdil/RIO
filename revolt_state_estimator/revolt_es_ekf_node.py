@@ -12,6 +12,7 @@ from geometry_msgs.msg import (
     TransformStamped, 
     Quaternion,
     Vector3Stamped,
+    PoseStamped,
 )
 import tf_transformations
 import tf2_ros
@@ -61,10 +62,9 @@ class RevoltEKF(Node):
         _radar_topic          = self.get_parameter("revolt_ekf.radar_topic").value
 
         l_BR_B = np.array(_l_BR_B, dtype=float).reshape(3, 1)
-        self.p_IR = l_BR_B
         qx, qy, qz, qw = _q_R_B
-        self.R_IR = quat_xyzw_to_R(qx, qy, qz, qw)  # Radar->IMU
-        self.R_RI = self.R_IR.T                     # IMU->Radar
+        q_R_B = np.array([qx, qy, qz, qw], dtype=float).reshape(4, 1)
+
         self.vr_sign  = int(_radar_vr_sign)
         self.sigma_vr = float(_radar_sigma_vr)
 
@@ -85,6 +85,8 @@ class RevoltEKF(Node):
             P_initial=self.P_hat_initial,
             T_acc=_T_acc,
             T_ars=_T_ars,
+            p_IR_init=l_BR_B,
+            q_IR_init=q_R_B,
         )
 
         # ROS2 Interfaces ----------
@@ -101,6 +103,8 @@ class RevoltEKF(Node):
         # Bias publishers (accel & gyro)
         self.accel_bias_pub = self.create_publisher(Vector3Stamped, "/rio/accel_bias", 10)
         self.gyro_bias_pub  = self.create_publisher(Vector3Stamped, "/rio/gyro_bias", 10)
+        # Radar extrinsics publisher
+        self.radar_pose_pub = self.create_publisher(PoseStamped, "/radar/extrinsics", 10)
 
         # Debugging ----------
         np.set_printoptions(
@@ -142,6 +146,8 @@ class RevoltEKF(Node):
         b_ax, b_ay, b_az    = x[6], x[7], x[8]
         qx, qy, qz, qw      = x[9], x[10], x[11], x[12]
         b_gx, b_gy, b_gz    = x[13], x[14], x[15]
+        p_ir_x, p_ir_y, p_ir_z = x[16], x[17], x[18]
+        q_ir_x, q_ir_y, q_ir_z, q_ir_w = x[19], x[20], x[21], x[22]
 
         # Broadcast NED → body TF
         t = TransformStamped()
@@ -201,6 +207,17 @@ class RevoltEKF(Node):
         gyro_bias_msg.vector.z = float(b_gz)
         self.gyro_bias_pub.publish(gyro_bias_msg)
 
+        radar_pose_msg = PoseStamped()
+        radar_pose_msg.header = state.header
+        radar_pose_msg.pose.position.x = float(p_ir_x)
+        radar_pose_msg.pose.position.y = float(p_ir_y)
+        radar_pose_msg.pose.position.z = float(p_ir_z)
+        radar_pose_msg.pose.orientation.x = float(q_ir_x)
+        radar_pose_msg.pose.orientation.y = float(q_ir_y)
+        radar_pose_msg.pose.orientation.z = float(q_ir_z)
+        radar_pose_msg.pose.orientation.w = float(q_ir_w)
+        self.radar_pose_pub.publish(radar_pose_msg)
+
     # EKF main loop. The ES-EKF runs at the frequency of the IMU.
     def imu_callback(self, msg: Imu):
         # Ensure no NaNs in orientation or yaw-rate
@@ -216,7 +233,7 @@ class RevoltEKF(Node):
         if not self.initialized:
             return
 
-        # IMU data (we currently assume body frame already)
+        # IMU data
         f_b = np.array(
             [[msg.linear_acceleration.x],
              [msg.linear_acceleration.y],
@@ -295,16 +312,21 @@ class RevoltEKF(Node):
         if self.new_velocity_measurement:
             for vr, mu_r in zip(self.VR_meas, self.MU_R):
                 # Use same R_nb for radar model
-                R_WI = R_nb
+                
                 v_WI = self.es_ekf.v_hat_ins.reshape(3, 1)
+                R_WI = self.es_ekf.quaternion_to_rotation_matrix(self.es_ekf.q_hat_ins)
+                p_IR = self.es_ekf.p_IR
+                R_IR = self.es_ekf.quaternion_to_rotation_matrix(self.es_ekf.q_IR)
+                R_RI = R_IR.T
+                w_nom = w_b - self.es_ekf.b_ars_ins
 
-                H = self.calculate_radar_H(mu_r, R_WI, v_WI)
-                h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_nom)
+                H = self.calculate_radar_H(mu_r, R_WI, v_WI, w_nom, p_IR, R_IR)
+                h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_nom, p_IR, R_IR)
 
                 e = np.array([[self.vr_sign * vr]], dtype=np.float64) - h
 
-                self.e_mean += e.item()
-                self.e_std  += e.item() ** 2
+                # self.e_mean += e.item()
+                # self.e_std  += e.item() ** 2
 
                 R_meas = np.array([[self.sigma_vr**2]], dtype=np.float64)
 
@@ -314,13 +336,13 @@ class RevoltEKF(Node):
                 self.es_ekf.P_hat_prior       = self.es_ekf.P_hat.copy()
                 self.es_ekf.delta_x_hat_prior = self.es_ekf.delta_x_hat.copy()
 
-            self.i += 1
-            if self.i == 200:
-                self.e_mean /= self.i
-                self.e_std = np.sqrt(self.e_std / self.i - self.e_mean**2)
-                self.get_logger().info(
-                    f"Radar vel residuals mean: {self.e_mean:.4f}, std: {self.e_std:.4f}"
-                )
+            # self.i += 1
+            # if self.i == 200:
+            #     self.e_mean /= self.i
+            #     self.e_std = np.sqrt(self.e_std / self.i - self.e_mean**2)
+            #     self.get_logger().info(
+            #         f"Radar vel residuals mean: {self.e_mean:.4f}, std: {self.e_std:.4f}"
+            #     )
 
             self.new_velocity_measurement = False
 
@@ -356,37 +378,44 @@ class RevoltEKF(Node):
 
         self.new_velocity_measurement = True
 
-    def calculate_radar_H(self, mu_r, R_WI, v_WI):
+    def calculate_radar_H(self, mu_r, R_WI, v_WI, w_nom, p_IR, R_IR):
         """
-        Build 1x15 Jacobian for Doppler measurement:
-        State order: [p(0:3), v(3:6), b_a(6:9), δθ(9:12), b_g(12:15)]
+        Build 1x21 Jacobian for Doppler measurement:
+        State order: [p(0:3), v(3:6), b_a(6:9), δθ(9:12), b_g(12:15), p_IR(15:18), q_IR(18:21)]
         """
         R_IW = R_WI.T
-        R_RI = self.R_IR.T
-        assert np.allclose(self.R_IR @ self.R_RI, np.eye(3), atol=1e-6)
+        R_RI = R_IR.T
+        assert np.allclose(R_IR @ R_RI, np.eye(3), atol=1e-6)
 
-        p_IR = self.p_IR
-
-        H = np.zeros((1, 15), dtype=np.float64)
+        H = np.zeros((1, 21), dtype=np.float64)
 
         # d e / d v_W = - μ^T R_RI R_IW
         H[0, 3:6] = -(mu_r.reshape(1, 3) @ (R_RI @ R_IW))
-
-        # d e / d b_g = - μ^T R_RI [p_IR]_x
-        H[0, 12:15] = -(mu_r.reshape(1, 3) @ (R_RI @ _skew(p_IR.flatten())))
 
         # d e / d δθ = - μ^T R_RI [R_IW v_W]_x
         v_I = R_IW @ v_WI
         S   = -(mu_r.reshape(1, 3) @ (R_RI @ _skew(v_I.flatten())))
         H[0, 9:12] = S
 
+        # d e / d b_g = - μ^T R_RI [p_IR]_x
+        H[0, 12:15] = -(mu_r.reshape(1, 3) @ (R_RI @ _skew(p_IR.flatten())))
+
+        # d e / d p_IR 
+        H[0, 15:18] = -(mu_r.reshape(1, 3) @ R_RI) @ _skew(w_nom.flatten())
+
+        # d e / d δθ_IR 
+        w_nom_skew = _skew(w_nom.flatten())
+        s_I = R_IW @ v_WI + w_nom_skew @ p_IR
+        v_R_nom = R_RI @ s_I
+        H[0, 18:21] = -(mu_r.reshape(1, 3) @ R_RI) @ _skew(v_R_nom.flatten())
+
         return H
 
-    def calculate_radar_h(self, mu_r, R_WI, v_WI, w_imu):
+    def calculate_radar_h(self, mu_r, R_WI, v_WI, w_nom, p_IR, R_IR):
         R_IW = R_WI.T
         v_I  = R_IW @ v_WI
-        spin = np.cross(w_imu.flatten(), self.p_IR.flatten()).reshape(3, 1)
-        v_R  = self.R_RI @ (v_I + spin)
+        spin = np.cross(w_nom.flatten(), p_IR.flatten()).reshape(3, 1)
+        v_R  = R_IR.T @ (v_I + spin)
         return float(-(mu_r.reshape(1, 3) @ v_R))
 
     def get_initial_P(self):
@@ -395,6 +424,8 @@ class RevoltEKF(Node):
         self.declare_parameter("revolt_ekf.initial_sigma.velocity",     [1e-1, 1e-1, 1e-1])
         self.declare_parameter("revolt_ekf.initial_sigma.accel_bias",   [1e-2, 1e-2, 1e-2])
         self.declare_parameter("revolt_ekf.initial_sigma.gyro_bias",    [1e-2, 1e-2, 1e-2])
+        self.declare_parameter("revolt_ekf.initial_sigma.radar_position",    [0.1, 0.1, 0.1])
+        self.declare_parameter("revolt_ekf.initial_sigma.radar_attitude_deg", [1.0, 1.0, 1.0])
 
         sig_att_deg = np.array(
             self.get_parameter("revolt_ekf.initial_sigma.attitude_deg").value,
@@ -416,15 +447,26 @@ class RevoltEKF(Node):
             self.get_parameter("revolt_ekf.initial_sigma.gyro_bias").value,
             dtype=float,
         )
+        sig_radar_pos = np.array(
+            self.get_parameter("revolt_ekf.initial_sigma.radar_position").value,
+            dtype=float,
+        )
+        sig_radar_att_deg = np.array(
+            self.get_parameter("revolt_ekf.initial_sigma.radar_attitude_deg").value,
+            dtype=float,
+        )
 
         sig_att = np.deg2rad(sig_att_deg)
+        sig_radar_att = np.deg2rad(sig_radar_att_deg)
 
-        P_init = np.zeros((15, 15), dtype=np.float64)
+        P_init = np.zeros((21, 21), dtype=np.float64)
         P_init[0:3,   0:3]   = np.diag(sig_pos**2)
         P_init[3:6,   3:6]   = np.diag(sig_vel**2)
         P_init[6:9,   6:9]   = np.diag(sig_ba**2)
         P_init[9:12,  9:12]  = np.diag(sig_att**2)
         P_init[12:15, 12:15] = np.diag(sig_bg**2)
+        P_init[15:18, 15:18] = np.diag(sig_radar_pos**2)
+        P_init[18:21, 18:21] = np.diag(sig_radar_att**2)
 
         return P_init
 
