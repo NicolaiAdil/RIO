@@ -73,6 +73,25 @@ def gravity(lat):
 
     return g
 
+def _exp_so3(phi):
+    a = np.linalg.norm(phi)
+    if a < 1e-8:
+        return np.eye(3) + _skew(phi)
+    A = np.sin(a)/a
+    B = (1 - np.cos(a))/(a*a)
+    K = _skew(phi)
+    return np.eye(3) + A*K + B*(K@K)
+
+def _project_to_SO3(R):
+    # Polar decomposition: R ≈ U V^T, det=+1
+    U, _, Vt = np.linalg.svd(R)
+    Rr = U @ Vt
+    if np.linalg.det(Rr) < 0:
+        U[:, -1] *= -1.0
+        Rr = U @ Vt
+    return Rr
+
+
 def _skew(v):
     vx, vy, vz = float(v[0]), float(v[1]), float(v[2])
     return np.array([[ 0, -vz,  vy],

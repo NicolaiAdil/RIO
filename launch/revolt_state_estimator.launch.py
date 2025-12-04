@@ -9,11 +9,6 @@ def generate_launch_description():
         'config',
         'revolt_ekf.yaml'
     ])
-    config_path_model = PathJoinSubstitution([
-        FindPackageShare('revolt_state_estimator'),
-        'config',
-        'revolt_model.yaml'
-    ])
 
     return LaunchDescription([
         Node(
@@ -23,7 +18,6 @@ def generate_launch_description():
             output='screen',
             parameters=[
                 config_path_ekf,
-                config_path_model,
             ],
         ),
     ])

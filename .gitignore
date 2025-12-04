@@ -4,6 +4,10 @@
 data/
 plots
 
+build/
+install/
+log/
+
 # eclipse stuff
 .project
 .cproject
