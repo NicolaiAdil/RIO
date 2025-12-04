@@ -1,12 +1,12 @@
 from setuptools import setup, find_packages
 import glob
 
-package_name = 'revolt_state_estimator'
+package_name = 'state_estimator'
 
 setup(
     name=package_name,
     version='1.0.0',
-    packages=find_packages(where='.', include=['revolt_state_estimator*', 'state_estimate_tuning*']),  # picks up revolt_state_estimator and state_estimate_tuning
+    packages=find_packages(where='.', include=['state_estimator*', 'state_estimate_tuning*']),  # picks up state_estimator and state_estimate_tuning
     include_package_data=True,
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
@@ -23,8 +23,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'revolt_ekf_node = revolt_state_estimator.revolt_es_ekf_node:main',
-            'revolt_ekf_debugger_node = state_estimate_tuning.revolt_es_ekf_debugger_node:main',
+            'state_estimator_node = state_estimator.state_estimator_node:main',
+            'state_estimator_debugger_node = state_estimate_tuning.state_estimator_debugger_node:main',
         ],
     },
 )

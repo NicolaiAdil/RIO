@@ -6,7 +6,7 @@ ROS 2 package implementing an Error-State EKF that fuses IMU and Doppler radar.
 
 ## Configuration
 
-All parameters are defined in `config/revolt_ekf.yaml`:
+All parameters are defined in `config/parameters.yaml`:
 - IMU & radar topics  
 - Process noise `Q`  
 - Doppler noise `radar_sigma_vr`  
