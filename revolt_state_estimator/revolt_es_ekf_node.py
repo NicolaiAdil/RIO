@@ -37,6 +37,10 @@ class RevoltEKF(Node):
         self.declare_parameter("revolt_ekf.T_acc", 1000.0)
         self.declare_parameter("revolt_ekf.T_ars", 500.0)
 
+        # Gating parameters
+        self.declare_parameter("revolt_ekf.radar_gating_enable", True)
+        self.declare_parameter("revolt_ekf.radar_gate_nsigma", 3.0)
+
         # Extrinsic transformation from radar to IMU
         self.declare_parameter("revolt_ekf.l_BR_B", [0.0, 0.0, 0.0])
         self.declare_parameter("revolt_ekf.q_R_B", [0.0, 0.0, 0.0, 1.0])
@@ -51,6 +55,8 @@ class RevoltEKF(Node):
         _l_BR_B         = self.get_parameter("revolt_ekf.l_BR_B").value
         _q_R_B          = self.get_parameter("revolt_ekf.q_R_B").value
         _radar_vr_sign  = self.get_parameter("radar_vr_sign").value
+        _gating_enable  = self.get_parameter("revolt_ekf.radar_gating_enable").value
+        _gate_nsigma    = self.get_parameter("revolt_ekf.radar_gate_nsigma").value
 
         # ROS 2 Parameters
         self.declare_parameter("revolt_ekf.state_estimate_topic", "/state_estimate/revolt")
@@ -67,6 +73,9 @@ class RevoltEKF(Node):
 
         self.vr_sign  = int(_radar_vr_sign)
         self.sigma_vr = float(_radar_sigma_vr)
+
+        self.gating_enable = bool(_gating_enable)
+        self.gate_nsigma   = float(_gate_nsigma)
 
         # EKF Setup ----------
         self.new_velocity_measurement = False
@@ -123,6 +132,8 @@ class RevoltEKF(Node):
             f" sigma_vr: {self.sigma_vr}\n"
             f" T_acc: {_T_acc}\n"
             f" T_ars: {_T_ars}\n\n"
+            f" Gating enabled: {self.gating_enable}\n"
+            f" Gate n-sigma: {self.gate_nsigma}\n\n"
             f"Publisher topics:\n"
             f" State estimate topic: {_state_estimate_topic}\n"
             f"Subscribe topics:\n"
@@ -310,6 +321,7 @@ class RevoltEKF(Node):
 
         # Radar velocity updates
         if self.new_velocity_measurement:
+            any_update = False
             for vr, mu_r in zip(self.VR_meas, self.MU_R):
                 # Use same R_nb for radar model
                 
@@ -330,11 +342,33 @@ class RevoltEKF(Node):
 
                 R_meas = np.array([[self.sigma_vr**2]], dtype=np.float64)
 
+                if self.gating_enable:
+                    S = float(H @ self.es_ekf.P_hat_prior @ H.T + R_meas)
+                    if S <= 0.0:
+                        continue  # degenerate, skip
+
+                    e_scalar = float(e)  # e is 1x1 array
+                    gamma = e_scalar * e_scalar / S
+                    gate_threshold = self.gate_nsigma ** 2
+
+                    if gamma > gate_threshold:
+                        self.get_logger().warn(
+                            f"Radar velocity measurement rejected by gating: "
+                            f"gamma={gamma:.2f} > threshold={gate_threshold:.2f}"
+                        )
+                        continue
+
                 delta_x_hat_i, _ = self.es_ekf.correct(e, H, R_meas)
                 self.es_ekf.update_state_estimate(delta_x_hat_i)
+                any_update = True
 
                 self.es_ekf.P_hat_prior       = self.es_ekf.P_hat.copy()
                 self.es_ekf.delta_x_hat_prior = self.es_ekf.delta_x_hat.copy()
+
+            # If no measurement was accepted, we still need to advance P_hat
+            if not any_update:
+                self.es_ekf.P_hat       = self.es_ekf.P_hat_prior
+                self.es_ekf.delta_x_hat = self.es_ekf.delta_x_hat_prior
 
             # self.i += 1
             # if self.i == 200:
@@ -348,7 +382,8 @@ class RevoltEKF(Node):
 
         else:
             # No aiding measurements
-            self.es_ekf.P_hat = self.es_ekf.P_hat_prior
+            self.es_ekf.P_hat       = self.es_ekf.P_hat_prior
+            self.es_ekf.delta_x_hat = self.es_ekf.delta_x_hat_prior
 
         # Publish state
         self._publish_state(self.es_ekf.x_hat_ins, self.es_ekf.P_hat)

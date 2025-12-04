@@ -13,8 +13,12 @@
       radar_sigma_vr: 0.38    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
-      T_acc: 100.0 # Eq. 14.195 in Fossen 2nd edition
-      T_ars: 60.0 # 14.196 in Fossen 2nd edition
+      T_acc: 70.0 # Eq. 14.195 in Fossen 2nd edition
+      T_ars: 50.0 # 14.196 in Fossen 2nd edition
+
+      # Gating
+      radar_gating_enable: True
+      radar_gate_nsigma: 5.0
 
       # Radar -> IMU extrinsic transformation
       l_BR_B: [0.07872, 0.02159, -0.05919] # [x y z]
@@ -37,9 +41,9 @@
         attitude_deg:       [6.0, 6.0, 1.0e-6]
         position:           [1.0e-6, 1.0e-6, 1.0e-6]
         velocity:           [1.0e-1, 1.0e-1, 1.0e-1]
-        accel_bias:         [1.0e-4, 1.0e-4, 1.0e-4]
+        accel_bias:         [1.0e-2, 1.0e-2, 1.0e-2]
         gyro_bias:          [1.0e-4, 1.0e-4, 1.0e-4]
-        radar_position:     [3.0e-3, 3.0e-3, 3.0e-3]
+        radar_position:     [1.0e-3, 1.0e-3, 1.0e-3]
         radar_attitude_deg: [3.0e-1, 3.0e-1, 3.0e-1]
 
   
