@@ -1,6 +1,6 @@
 # State Estimator
 
-ROS 2 package implementing an Error-State EKF that fuses IMU and Doppler radar.  
+ROS 2 package implementing an Error-State Kalman Filter that fuses IMU and Doppler radar.  
 
 ---
 
