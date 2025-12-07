@@ -41,6 +41,11 @@ class StateEstimator(Node):
         self.declare_parameter("parameters.radar_gating_enable", True)
         self.declare_parameter("parameters.radar_gate_nsigma", 3.0)
 
+        # IKF parameters (iterated EKF on measurement update)
+        self.declare_parameter("parameters.ikf_enable", False)
+        self.declare_parameter("parameters.ikf_max_iters", 3)
+        self.declare_parameter("parameters.ikf_tol", 1e-4)
+
         # Extrinsic transformation from radar to IMU
         self.declare_parameter("parameters.l_BR_B", [0.0, 0.0, 0.0])
         self.declare_parameter("parameters.q_R_B", [0.0, 0.0, 0.0, 1.0])
@@ -57,6 +62,9 @@ class StateEstimator(Node):
         _radar_vr_sign  = self.get_parameter("radar_vr_sign").value
         _gating_enable  = self.get_parameter("parameters.radar_gating_enable").value
         _gate_nsigma    = self.get_parameter("parameters.radar_gate_nsigma").value
+        _ikf_enable     = self.get_parameter("parameters.ikf_enable").value
+        _ikf_max_iters  = self.get_parameter("parameters.ikf_max_iters").value
+        _ikf_tol        = self.get_parameter("parameters.ikf_tol").value
 
         # ROS 2 Parameters
         self.declare_parameter("parameters.state_estimate_topic", "/rio/pose")
@@ -76,6 +84,10 @@ class StateEstimator(Node):
 
         self.gating_enable = bool(_gating_enable)
         self.gate_nsigma   = float(_gate_nsigma)
+
+        self.ikf_enable    = bool(_ikf_enable)
+        self.ikf_max_iters = int(_ikf_max_iters)
+        self.ikf_tol       = float(_ikf_tol)
 
         # EKF Setup ----------
         self.new_velocity_measurement = False
@@ -132,8 +144,11 @@ class StateEstimator(Node):
             f" sigma_vr: {self.sigma_vr}\n"
             f" T_acc: {_T_acc}\n"
             f" T_ars: {_T_ars}\n\n"
-            f" Gating enabled: {self.gating_enable}\n"
+            f"Gating enabled: {self.gating_enable}\n"
             f" Gate n-sigma: {self.gate_nsigma}\n\n"
+            f"IKF enabled: {self.ikf_enable}\n"
+            f" IKF max iterations: {self.ikf_max_iters}\n"
+            f" IKF tolerance: {self.ikf_tol}\n\n"
             f"Publisher topics:\n"
             f" State estimate topic: {_state_estimate_topic}\n"
             f"Subscribe topics:\n"
@@ -147,7 +162,7 @@ class StateEstimator(Node):
 
     # Initialize EKF system (STOP) ==================================================
 
-    def _publish_state(self, x, P):
+    def _publish_state(self, x, P, time_stamp):
         """
         x: nominal state (16x1)
         P: 15x15 error covariance
@@ -159,10 +174,9 @@ class StateEstimator(Node):
         b_gx, b_gy, b_gz    = x[13], x[14], x[15]
         p_ir_x, p_ir_y, p_ir_z = x[16], x[17], x[18]
         q_ir_x, q_ir_y, q_ir_z, q_ir_w = x[19], x[20], x[21], x[22]
-
-        # Broadcast NED → body TF
+        
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = time_stamp
         t.header.frame_id = "ned"
         t.child_frame_id  = "body"
         t.transform.translation.x = float(x_pos)
@@ -243,6 +257,8 @@ class StateEstimator(Node):
 
         if not self.initialized:
             return
+
+        t0 = self.get_clock().now()
 
         # IMU data
         f_b = np.array(
@@ -357,11 +373,53 @@ class StateEstimator(Node):
                             f"gamma={gamma:.2f} > threshold={gate_threshold:.2f}"
                         )
                         continue
+                if not self.ikf_enable:
+                    delta_x_hat_i, _ = self.eskf.correct(e, H, R_meas)
+                    self.eskf.update_state_estimate(delta_x_hat_i)
+                    any_update = True
 
-                delta_x_hat_i, _ = self.eskf.correct(e, H, R_meas)
-                self.eskf.update_state_estimate(delta_x_hat_i)
+                    self.eskf.P_hat_prior       = self.eskf.P_hat.copy()
+                    self.eskf.delta_x_hat_prior = self.eskf.delta_x_hat.copy()
+                    continue
+                # ------------------------------
+                # IKF: iterated EKF on this measurement
+                # ------------------------------
+                # Store covariance prior for this measurement
+                P_prior_meas = self.eskf.P_hat_prior.copy()
+                delta_norm_prev = np.inf
+
+                for it in range(self.ikf_max_iters):
+                    # Recompute linearization around current state
+                    v_WI = self.eskf.v_hat_ins.reshape(3, 1)
+                    R_WI = self.eskf.quaternion_to_rotation_matrix(self.eskf.q_hat_ins)
+                    p_IR = self.eskf.p_IR
+                    R_IR = self.eskf.quaternion_to_rotation_matrix(self.eskf.q_IR)
+                    w_nom = w_b - self.eskf.b_ars_ins
+
+                    H = self.calculate_radar_H(mu_r, R_WI, v_WI, w_nom, p_IR, R_IR)
+                    h = self.calculate_radar_h(mu_r, R_WI, v_WI, w_nom, p_IR, R_IR)
+
+                    e_it = np.array([[self.vr_sign * vr]], dtype=np.float64) - h
+
+                    # For a “true” IKF, covariance is based on the same prior each iteration.
+                    # Reset prior before calling correct:
+                    self.eskf.P_hat_prior       = P_prior_meas
+                    self.eskf.delta_x_hat_prior = np.zeros_like(self.eskf.delta_x_hat_prior)
+
+                    delta_x_hat_i, _ = self.eskf.correct(e_it, H, R_meas)
+                    self.eskf.update_state_estimate(delta_x_hat_i)
+
+                    delta_norm = float(np.linalg.norm(delta_x_hat_i))
+                    if delta_norm < self.ikf_tol:
+                        break
+                    if delta_norm > delta_norm_prev:
+                        # divergence, stop iterating
+                        break
+                    delta_norm_prev = delta_norm
+
                 any_update = True
 
+                # After IKF, set prior for the next measurement in this scan
                 self.eskf.P_hat_prior       = self.eskf.P_hat.copy()
                 self.eskf.delta_x_hat_prior = self.eskf.delta_x_hat.copy()
 
@@ -386,7 +444,13 @@ class StateEstimator(Node):
             self.eskf.delta_x_hat = self.eskf.delta_x_hat_prior
 
         # Publish state
-        self._publish_state(self.eskf.x_hat_ins, self.eskf.P_hat)
+        t1 = self.get_clock().now()
+        dt = (t1 - t0).nanoseconds * 1e-9
+        t_msg = msg.header.stamp
+        t_ros = rclpy.time.Time.from_msg(t_msg)
+        t_ros = t_ros + rclpy.time.Duration(seconds=dt)
+        time_stamp = t_ros.to_msg()
+        self._publish_state(self.eskf.x_hat_ins, self.eskf.P_hat, time_stamp)
 
     def update_radar(self, msg: PointCloud2, min_range=1e-2):
         """Extract bearing unit vectors (in radar frame R) and per-return radial speeds."""

@@ -4,21 +4,31 @@
       # Process noise, The smaller the value, the more you trust your model
       # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
       # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
+      # Q: [
+      #   1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
+      #   7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
+      #   2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
+      #   2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
+      # ]
       Q: [
         1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
         7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
         2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
         2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
       ]
-      radar_sigma_vr: 0.38    # per-return Doppler noise (m/s)
+      radar_sigma_vr: 0.038    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
       T_acc: 70.0 # Eq. 14.195 in Fossen 2nd edition
       T_ars: 50.0 # 14.196 in Fossen 2nd edition
 
       # Gating
-      radar_gating_enable: True
-      radar_gate_nsigma: 5.0
+      radar_gating_enable: true
+      radar_gate_nsigma: 8.0
+
+      ikf_enable: false    # iterative EKF on each Doppler return
+      ikf_max_iters: 5
+      ikf_tol: 1.0e-4
 
       # Radar -> IMU extrinsic transformation
       l_BR_B: [0.07872, 0.02159, -0.05919] # [x y z]
@@ -42,8 +52,8 @@
         position:           [1.0e-6, 1.0e-6, 1.0e-6]
         velocity:           [1.0e-1, 1.0e-1, 1.0e-1]
         accel_bias:         [1.0e-2, 1.0e-2, 1.0e-2]
-        gyro_bias:          [1.0e-4, 1.0e-4, 1.0e-4]
+        gyro_bias:          [1.0e-2, 1.0e-2, 1.0e-2]
         radar_position:     [1.0e-3, 1.0e-3, 1.0e-3]
-        radar_attitude_deg: [3.0e-1, 3.0e-1, 3.0e-1]
+        radar_attitude_deg: [2.5e-1, 2.5e-1, 2.5e-1]
 
   
