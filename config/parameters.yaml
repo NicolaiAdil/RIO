@@ -4,20 +4,26 @@
       # Process noise, The smaller the value, the more you trust your model
       # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
       # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
+      # Q: [
+      #   1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
+      #   7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
+      #   2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
+      #   2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
+      # ]
       Q: [
-        1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
-        7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
-        2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
-        2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
+        1.9283920393e-03, 1.9283920393e-03, 1.9283920393e-03,   # accel white
+        7.2901076509e-06, 7.2901076509e-06, 7.2901076509e-06,   # accel bias RW
+        2.9572436856e-06, 2.9572436856e-06, 2.9572436856e-06,   # gyro white
+        2.7515926086e-9, 2.7515926086e-9, 2.7515926086e-9    # gyro bias RW
       ]
-      radar_sigma_vr: 0.38    # per-return Doppler noise (m/s)
+      radar_sigma_vr: 0.038    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
       T_acc: 70.0 # Eq. 14.195 in Fossen 2nd edition
       T_ars: 50.0 # 14.196 in Fossen 2nd edition
 
       # Gating
-      radar_gating_enable: True
+      radar_gating_enable: true
       radar_gate_nsigma: 5.0
 
       # Radar -> IMU extrinsic transformation

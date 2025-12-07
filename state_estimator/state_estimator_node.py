@@ -147,7 +147,7 @@ class StateEstimator(Node):
 
     # Initialize EKF system (STOP) ==================================================
 
-    def _publish_state(self, x, P):
+    def _publish_state(self, x, P, time_stamp):
         """
         x: nominal state (16x1)
         P: 15x15 error covariance
@@ -162,7 +162,7 @@ class StateEstimator(Node):
 
         # Broadcast NED → body TF
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = time_stamp
         t.header.frame_id = "ned"
         t.child_frame_id  = "body"
         t.transform.translation.x = float(x_pos)
@@ -344,6 +344,7 @@ class StateEstimator(Node):
 
                 if self.gating_enable:
                     S = float(H @ self.eskf.P_hat_prior @ H.T + R_meas)
+                    # self.get_logger().info(f"Radar velocity measurement: S={S}")
                     if S <= 0.0:
                         continue  # degenerate, skip
 
@@ -386,7 +387,7 @@ class StateEstimator(Node):
             self.eskf.delta_x_hat = self.eskf.delta_x_hat_prior
 
         # Publish state
-        self._publish_state(self.eskf.x_hat_ins, self.eskf.P_hat)
+        self._publish_state(self.eskf.x_hat_ins, self.eskf.P_hat, msg.header.stamp)
 
     def update_radar(self, msg: PointCloud2, min_range=1e-2):
         """Extract bearing unit vectors (in radar frame R) and per-return radial speeds."""
