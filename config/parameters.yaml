@@ -5,20 +5,26 @@
       # I can not figure out why this is 12-dimensional and not 15-dimensional, but is taken from:
       # https://github.com/cybergalactic/MSS/blob/master/mssExamples/exINS_AHRS.m
       Q: [
-        1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # accel white
-        7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # accel bias RW
-        2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # gyro white
-        2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # gyro bias RW
+        1.9283920393e-06, 1.9283920393e-06, 1.9283920393e-06,   # [ (m / s^2 / sqrt(Hz))^2] accel white 
+        7.2901076509e-09, 7.2901076509e-09, 7.2901076509e-09,   # [ (m / s^3 / sqrt(Hz))^2] accel bias RW 
+        2.9572436856e-09, 2.9572436856e-09, 2.9572436856e-09,   # [ (rad / s / sqrt(Hz))^2] gyro white 
+        2.7515926086e-12, 2.7515926086e-12, 2.7515926086e-12    # [ (rad / s^2 / sqrt(Hz))^2 ] gyro bias RW
       ]
-      radar_sigma_vr: 0.38    # per-return Doppler noise (m/s)
+      # Q: [
+      #   1.9283920393e-03, 1.9283920393e-03, 1.9283920393e-03,   # accel white
+      #   7.2901076509e-06, 7.2901076509e-06, 7.2901076509e-06,   # accel bias RW
+      #   2.9572436856e-06, 2.9572436856e-06, 2.9572436856e-06,   # gyro white
+      #   2.7515926086e-9, 2.7515926086e-9, 2.7515926086e-9    # gyro bias RW
+      # ]
+      radar_sigma_vr: 0.038    # per-return Doppler noise (m/s)
 
       # Time constants for the bias models, chosen based on the matlab example
-      T_acc: 70.0 # Eq. 14.195 in Fossen 2nd edition
-      T_ars: 50.0 # 14.196 in Fossen 2nd edition
+      T_acc: 1000.0 # Eq. 14.195 in Fossen 2nd edition
+      T_ars: 450.0 # 14.196 in Fossen 2nd edition
 
       # Gating
-      radar_gating_enable: True
-      radar_gate_nsigma: 5.0
+      radar_gating_enable: true
+      radar_gate_nsigma: 8.0
 
       # Radar -> IMU extrinsic transformation
       l_BR_B: [0.07872, 0.02159, -0.05919] # [x y z]
@@ -43,7 +49,7 @@
         velocity:           [1.0e-1, 1.0e-1, 1.0e-1]
         accel_bias:         [1.0e-2, 1.0e-2, 1.0e-2]
         gyro_bias:          [1.0e-4, 1.0e-4, 1.0e-4]
-        radar_position:     [1.0e-3, 1.0e-3, 1.0e-3]
-        radar_attitude_deg: [3.0e-1, 3.0e-1, 3.0e-1]
+        radar_position:     [2.0e-3, 2.0e-3, 2.0e-3]
+        radar_attitude_deg: [2.5e-1, 2.5e-1, 2.5e-1]
 
   
