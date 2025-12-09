@@ -304,7 +304,14 @@ class StateEstimator(Node):
         E = self.eskf.generate_E(R_nb)
 
         Ad = np.eye(self.eskf.num_states) + A * dt
-        Qd = (E @ self.Q @ E.T) * dt
+        
+        Qd = (E @ self.Q @ E.T) # Change this to Van Loan discretization
+
+        # Eq. 129 and 130 in Trawny05b
+        Qd[:3, :3]     /= dt 
+        Qd[3:6, 3:6]   *= dt
+        Qd[6:9, 6:9]   /= dt
+        Qd[9:12, 9:12] *= dt
 
         # Predict error state and covariance
         self.eskf.predict(Ad, Qd)

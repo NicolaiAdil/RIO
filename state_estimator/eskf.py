@@ -70,7 +70,7 @@ class ErrorState_KalmanFilter:
         Predictor update (Fossen 2nd, eq. 14.206, 14.207)
         """
         # δx_hat_prior[k+1] = Ad[k] * δx_hat[k]
-        self.delta_x_hat_prior = Ad @ self.delta_x_hat
+        self.delta_x_hat_prior = Ad @ self.delta_x_hat # This is always zero, could comment it out.
 
         # P_hat_prior[k+1] = Ad[k] * P_hat[k] * Ad[k].T + Qd[k]
         self.P_hat_prior = Ad @ self.P_hat @ Ad.T + Qd
