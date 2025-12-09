@@ -17,6 +17,7 @@ from geometry_msgs.msg import (
 import tf_transformations
 import tf2_ros
 import numpy as np
+import scipy.linalg as la
 
 from state_estimator.eskf import ErrorState_KalmanFilter
 from state_estimator.utils import _skew
@@ -304,14 +305,32 @@ class StateEstimator(Node):
         E = self.eskf.generate_E(R_nb)
 
         Ad = np.eye(self.eskf.num_states) + A * dt
-        
-        Qd = (E @ self.Q @ E.T) # Change this to Van Loan discretization
 
         # Eq. 129 and 130 in Trawny05b
-        Qd[:3, :3]     /= dt 
-        Qd[3:6, 3:6]   *= dt
-        Qd[6:9, 6:9]   /= dt
-        Qd[9:12, 9:12] *= dt
+
+        Q = self.Q.copy()    
+        Q[:3, :3]     /= dt 
+        Q[3:6, 3:6]   *= dt
+        Q[6:9, 6:9]   /= dt
+        Q[9:12, 9:12] *= dt
+            
+        Qd = (E @ Q @ E.T) * dt # Change this to Van Loan discretization
+
+        # Qc = self.Q  # interpret as continuous-time spectral density
+
+        # n = A.shape[0]
+
+        # M = np.zeros((2*n, 2*n))
+        # M[0:n,     0:n]     = -A
+        # M[0:n,     n:2*n]   = E @ Qc @ E.T
+        # M[n:2*n,   n:2*n]   =  A.T
+
+        # Md = la.expm(M * dt)
+
+        # Phi = Md[n:2*n, n:2*n].T       # state transition Φ
+        # Qd  = Phi @ Md[0:n, n:2*n]     # discrete process noise covariance
+
+        # Ad = Phi                        # use this instead of I + A*dt
 
         # Predict error state and covariance
         self.eskf.predict(Ad, Qd)
