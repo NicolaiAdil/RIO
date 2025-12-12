@@ -469,7 +469,7 @@ class StateEstimator(Node):
         w_nom_skew = _skew(w_nom.flatten())
         s_I = R_IW @ v_WI + w_nom_skew @ p_IR
         v_R_nom = R_RI @ s_I
-        H[0, 18:21] = -(mu_r.reshape(1, 3) @ R_RI) @ _skew(v_R_nom.flatten())
+        H[0, 18:21] = -mu_r.reshape(1, 3) @ _skew(v_R_nom.flatten())
 
         return H
 
