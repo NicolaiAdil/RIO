@@ -13,6 +13,9 @@ Also shows:
 NEW:
 - Second window plotting radar extrinsics (position and attitude of radar in body frame)
   including ground truth extrinsics for comparison, with GT in same color (dashed).
+
+UPDATE:
+- Radar attitude is now shown in 3 separate plots (roll, pitch, yaw) to make convergence easier to assess.
 """
 
 from collections import deque
@@ -337,31 +340,45 @@ class EKFDebugPlotter(Node):
             pass
 
         # Second figure for radar extrinsics (position + attitude)
-        self.fig_extr = plt.figure(figsize=(10, 8))
-        gs2 = self.fig_extr.add_gridspec(2, 1, height_ratios=[1.0, 1.0], hspace=0.3)
+        self.fig_extr = plt.figure(figsize=(10, 10))
+        gs2 = self.fig_extr.add_gridspec(2, 1, height_ratios=[1.35, 1.0], hspace=0.30)
 
-        # Attitude of radar wrt body
-        self.ax_extr_att = self.fig_extr.add_subplot(gs2[0, 0])
-        self.ax_extr_att.set_title("Radar Extrinsics: Attitude (radar → body)")
-        self.ax_extr_att.set_ylabel("Angle [deg]")
-        self.ax_extr_att.set_xlabel("Time [s]")
-        self.ax_extr_att.grid(True)
+        # --- Radar extrinsics: ATTITUDE as 3 separate plots (roll/pitch/yaw) ---
+        att_gs = gs2[0, 0].subgridspec(3, 1, hspace=0.10)
+
+        self.ax_extr_roll = self.fig_extr.add_subplot(att_gs[0, 0])
+        self.ax_extr_pitch = self.fig_extr.add_subplot(att_gs[1, 0], sharex=self.ax_extr_roll)
+        self.ax_extr_yaw = self.fig_extr.add_subplot(att_gs[2, 0], sharex=self.ax_extr_roll)
+
+        self.ax_extr_roll.set_title("Radar Extrinsics: Attitude")
+        self.ax_extr_roll.set_ylabel("Roll [deg]")
+        self.ax_extr_pitch.set_ylabel("Pitch [deg]")
+        self.ax_extr_yaw.set_ylabel("Yaw [deg]")
+        self.ax_extr_yaw.set_xlabel("Time [s]")
+
+        for ax in (self.ax_extr_roll, self.ax_extr_pitch, self.ax_extr_yaw):
+            ax.grid(True)
 
         # Estimated attitude lines
-        self.l_ex_roll, = self.ax_extr_att.plot([], [], label="roll est")
-        self.l_ex_pitch, = self.ax_extr_att.plot([], [], label="pitch est")
-        self.l_ex_yaw, = self.ax_extr_att.plot([], [], label="yaw est")
+        self.l_ex_roll, = self.ax_extr_roll.plot([], [], label="roll est")
+        self.l_ex_pitch, = self.ax_extr_pitch.plot([], [], label="pitch est")
+        self.l_ex_yaw, = self.ax_extr_yaw.plot([], [], label="yaw est")
 
-        # Same colors for GT, dashed
-        roll_color = self.l_ex_roll.get_color()
-        pitch_color = self.l_ex_pitch.get_color()
-        yaw_color = self.l_ex_yaw.get_color()
+        # Ground-truth attitude (same colors, dashed)
+        self.l_ex_roll_gt, = self.ax_extr_roll.plot([], [], '--', label="roll GT",
+                                                    color=self.l_ex_roll.get_color())
+        self.l_ex_pitch_gt, = self.ax_extr_pitch.plot([], [], '--', label="pitch GT",
+                                                      color=self.l_ex_pitch.get_color())
+        self.l_ex_yaw_gt, = self.ax_extr_yaw.plot([], [], '--', label="yaw GT",
+                                                  color=self.l_ex_yaw.get_color())
 
-        self.l_ex_roll_gt, = self.ax_extr_att.plot([], [], '--', label="roll GT", color=roll_color)
-        self.l_ex_pitch_gt, = self.ax_extr_att.plot([], [], '--', label="pitch GT", color=pitch_color)
-        self.l_ex_yaw_gt, = self.ax_extr_att.plot([], [], '--', label="yaw GT", color=yaw_color)
+        self.ax_extr_roll.legend(loc='best')
+        self.ax_extr_pitch.legend(loc='best')
+        self.ax_extr_yaw.legend(loc='best')
 
-        self.ax_extr_att.legend(loc='best')
+        # Hide upper x tick labels (shared x)
+        plt.setp(self.ax_extr_roll.get_xticklabels(), visible=False)
+        plt.setp(self.ax_extr_pitch.get_xticklabels(), visible=False)
 
         # Position of radar wrt body
         self.ax_extr_pos = self.fig_extr.add_subplot(gs2[1, 0])
@@ -537,10 +554,13 @@ class EKFDebugPlotter(Node):
             self.l_ex_py_gt.set_data(t_ex_w, np.full_like(t_ex_w, py_gt))
             self.l_ex_pz_gt.set_data(t_ex_w, np.full_like(t_ex_w, pz_gt))
 
-            self.ax_extr_att.set_xlim([tmin, tmax])
-            self.ax_extr_att.relim()
-            self.ax_extr_att.autoscale_view(scalex=False, scaley=True)
+            # Attitude axes scaling (3 separate plots)
+            for ax in (self.ax_extr_roll, self.ax_extr_pitch, self.ax_extr_yaw):
+                ax.set_xlim([tmin, tmax])
+                ax.relim()
+                ax.autoscale_view(scalex=False, scaley=True)
 
+            # Position axis scaling
             self.ax_extr_pos.set_xlim([tmin, tmax])
             self.ax_extr_pos.relim()
             self.ax_extr_pos.autoscale_view(scalex=False, scaley=True)
